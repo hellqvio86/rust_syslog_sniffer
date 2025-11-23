@@ -38,8 +38,6 @@ jobs:
     - name: Run unit tests
       run: cargo test
 
-
-
     - name: Run Docker E2E Test
       run: |
         chmod +x tests/e2e_docker.sh

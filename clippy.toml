@@ -12,7 +12,6 @@ disallowed-methods = [
     "std::env::set_var",
 ]
 disallowed-types = []
-enforce-iter-syntax-on-impl = true
 max-trait-bounds = 3
 max-struct-bools = 3
 avoid-breaking-exported-api = true

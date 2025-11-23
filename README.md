@@ -16,7 +16,9 @@ cargo build
 
 ## Usage
 
-The sniffer requires `sudo` privileges to capture packets.
+Specify the interface to sniff on with the `--interface` option.
+
+The sniffer requires raw socket access to capture packets. This typically means running as root (via `sudo`) or having the `CAP_NET_RAW` capability set on the binary.
 
 ```bash
 # Run with default settings (10s interval, JSON output, quiet)

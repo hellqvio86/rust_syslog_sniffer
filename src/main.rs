@@ -1,7 +1,7 @@
 use clap::Parser;
 use pcap::Device;
 use syslog_sniffer::parse_syslog_packet;
-use log::{info, debug};
+use log::debug;
 use std::env;
 
 // debug run 
@@ -18,6 +18,20 @@ struct Cli {
     interface: String,
     #[arg(short, long, default_value_t=false)]
     debug: bool,
+    #[arg(long, default_value_t=10)]
+    interval: u64,
+}
+
+#[derive(serde::Serialize)]
+struct JsonSummary {
+    interval_seconds: u64,
+    hosts: std::collections::HashMap<String, HostStats>,
+}
+
+#[derive(serde::Serialize)]
+struct HostStats {
+    count: u64,
+    sample: String,
 }
 
 fn main() {
@@ -26,12 +40,14 @@ fn main() {
     if args.debug {
         env::set_var("RUST_LOG", "debug");
     } else if env::var("RUST_LOG").is_err() {
-        env::set_var("RUST_LOG", "info");
+        // Default to error only (quiet) unless RUST_LOG is set
+        env::set_var("RUST_LOG", "error");
     }
     env_logger::init();
 
-    info!("Port to sniff: {:?}", args.port);
-    info!("Interface to sniff: {:?}", args.interface);
+    debug!("Port to sniff: {:?}", args.port);
+    debug!("Interface to sniff: {:?}", args.interface);
+    debug!("Interval: {} seconds", args.interval);
 
     let device = Device::list()
         .expect("device lookup failed")
@@ -42,59 +58,81 @@ fn main() {
     let mut cap = pcap::Capture::from_device(device)
         .expect("Failed to create capture")
         .immediate_mode(true)
+        .timeout(1000)
         .open()
         .expect("Failed to open capture");
     
     // Set filter for UDP and the specified port
     let filter = format!("udp port {}", args.port);
     cap.filter(&filter, true).expect("Failed to set filter");
+    
+    // Set non-blocking mode to ensure we can exit the loop when interval expires
+    cap = match cap.setnonblock() {
+        Ok(c) => c,
+        Err(e) => panic!("Failed to set non-blocking mode: {:?}", e),
+    };
 
-    info!("Listening on {} for UDP port {}", args.interface, args.port);
-    info!("Datalink: {:?}", cap.get_datalink());
+    debug!("Listening on {} for UDP port {}", args.interface, args.port);
+    debug!("Datalink: {:?}", cap.get_datalink());
     debug!("Starting capture loop");
 
-    while let Ok(packet) = cap.next_packet() {
-        debug!("Received packet: len={}", packet.data.len());
-        
-        // The packet data includes headers (Ethernet, IP, UDP). 
-        // We need to extract the payload.
-        // For simplicity in this raw sniffer, we might just try to parse the whole packet 
-        // or we can try to be smarter. 
-        // pcap returns the whole frame.
-        // A robust implementation would parse headers. 
-        // However, since we are just "sniffing" and looking for strings, 
-        // let's try to find the syslog message in the payload.
-        // But wait, `parse_syslog_packet` expects the payload.
-        
-        // Let's just pass the whole data to `parse_syslog_packet` for now, 
-        // but realistically we should skip headers. 
-        // Ethernet header is 14 bytes. IP header is usually 20. UDP is 8.
-        // Total offset ~ 42 bytes.
-        // But this varies (VLANs, IPv6, options).
-        
-        // For this task, let's just print if we find a valid UTF-8 string that looks like syslog 
-        // or just print the payload if we can find it.
-        
-        // To keep it simple and robust enough for a "sniffer":
-        // We will just print the packet data if it parses as UTF-8 string.
-        // But the headers will be garbage characters.
-        
-        // Let's try to be slightly smarter: skip 42 bytes?
-        // Or better, just print the length and the raw data if it looks like text.
-        
-        // Heuristic: Syslog messages typically start with '<' (PRI).
-        // We'll scan the packet for this character and try to parse from there.
-        // This avoids issues with variable header lengths (e.g. loopback vs ethernet).
-        
-        if let Some(start_index) = packet.data.iter().position(|&b| b == b'<') {
-            if let Some(syslog) = parse_syslog_packet(&packet.data[start_index..]) {
-                println!("Captured: {}", syslog.message);
+    let start_time = std::time::Instant::now();
+    let duration = std::time::Duration::from_secs(args.interval);
+    
+    // Map: Hostname -> (Count, Sample Message)
+    let mut stats: std::collections::HashMap<String, (u64, String)> = std::collections::HashMap::new();
+
+    loop {
+        if start_time.elapsed() >= duration {
+            break;
+        }
+
+        match cap.next_packet() {
+            Ok(packet) => {
+                debug!("Received packet: len={}", packet.data.len());
+                
+                // Heuristic: Syslog messages typically start with '<' (PRI).
+                if let Some(start_index) = packet.data.iter().position(|&b| b == b'<') {
+                    if let Some(syslog) = parse_syslog_packet(&packet.data[start_index..]) {
+                        let hostname = syslog.hostname.clone().unwrap_or_else(|| "Unknown".to_string());
+                        
+                        stats.entry(hostname)
+                            .and_modify(|(count, _)| *count += 1)
+                            .or_insert((1, syslog.message.clone()));
+                            
+                        debug!("Captured from {}: {}", syslog.hostname.as_deref().unwrap_or("Unknown"), syslog.message);
+                    }
+                } else {
+                     if let Some(syslog) = parse_syslog_packet(packet.data) {
+                         let hostname = syslog.hostname.clone().unwrap_or_else(|| "Unknown".to_string());
+                         stats.entry(hostname)
+                            .and_modify(|(count, _)| *count += 1)
+                            .or_insert((1, syslog.message.clone()));
+                     }
+                }
+            },
+            Err(pcap::Error::TimeoutExpired) => {
+                // Timeout is good, lets us check loop condition
+                continue;
+            },
+            Err(e) => {
+                // In non-blocking mode, we might get errors if no packet is ready.
+                // Sleep a bit to avoid busy loop
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                debug!("Error capturing packet (might be empty): {:?}", e);
             }
-        } else {
-             // Fallback: try to parse the whole packet if it's valid UTF-8 (unlikely for raw packets but possible)
-             if let Some(syslog) = parse_syslog_packet(packet.data) {
-                 println!("Captured: {}", syslog.message);
-             }
         }
     }
+
+    let mut hosts_map = std::collections::HashMap::new();
+    for (hostname, (count, sample)) in stats {
+        hosts_map.insert(hostname, HostStats { count, sample });
+    }
+    
+    let summary = JsonSummary {
+        interval_seconds: args.interval,
+        hosts: hosts_map,
+    };
+    
+    println!("{}", serde_json::to_string_pretty(&summary).unwrap());
 }

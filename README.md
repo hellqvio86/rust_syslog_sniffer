@@ -16,20 +16,41 @@ cargo build
 
 ## Usage
 
-You need to specify the network interface to listen on. You may need root privileges to capture packets.
+The sniffer requires `sudo` privileges to capture packets.
 
 ```bash
-# Listen on eth0, default port 514
+# Run with default settings (10s interval, JSON output, quiet)
 sudo ./target/debug/syslog_sniffer --interface eth0
 
-# Listen on wlan0, custom port 5140
-sudo ./target/debug/syslog_sniffer -i wlan0 -p 5140
+# Run with custom interval (e.g., 30 seconds)
+sudo ./target/debug/syslog_sniffer --interface eth0 --interval 30
+
+# Run with debug logging enabled (prints to stderr)
+sudo ./target/debug/syslog_sniffer --interface eth0 --debug
+```
+
+### Output Format
+
+The application outputs a JSON summary to `stdout` after the interval completes.
+
+```json
+{
+  "interval_seconds": 60,
+  "hosts": {
+    "mymachine.example.com": {
+      "count": 1,
+      "sample": "<165>1 2025-11-23T08:00:00.000Z mymachine.example.com ..."
+    }
+  }
+}
 ```
 
 ### Options
 
 - `-i, --interface <INTERFACE>`: Network interface to sniff on (required).
 - `-p, --port <PORT>`: UDP port to listen on (default: 514).
+- `--interval <SECONDS>`: Duration to run the sniffer in seconds (default: 10).
+- `-d, --debug`: Enable debug logging to stderr.
 
 ## Makefile
 

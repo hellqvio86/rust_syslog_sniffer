@@ -1,25 +1,61 @@
 
+use regex::Regex;
+use std::sync::OnceLock;
+use serde::Serialize;
+
+#[derive(Debug, Serialize)]
 pub struct SyslogPacket {
     pub message: String,
+    pub hostname: Option<String>,
+}
+
+fn rfc5424_regex() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| {
+        // <PRI>VERSION TIMESTAMP HOSTNAME APP-NAME PROCID MSGID STRUCT-DATA MSG
+        // We just want to grab the HOSTNAME (4th field)
+        // Example: <165>1 2003-10-11T22:14:15.003Z mymachine.example.com ...
+        Regex::new(r"^<(\d{1,3})>(\d)\s+(\S+)\s+(\S+)\s+").unwrap()
+    })
+}
+
+fn rfc3164_regex() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| {
+        // <PRI>TIMESTAMP HOSTNAME MSG
+        // Example: <13>Oct 11 22:14:15 mymachine su: ...
+        Regex::new(r"^<(\d{1,3})>([A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2})\s+(\S+)\s+").unwrap()
+    })
 }
 
 pub fn parse_syslog_packet(packet: &[u8]) -> Option<SyslogPacket> {
-    // Basic parsing: assume the payload is the message.
-    // In a real syslog packet, there might be headers, but for this simple sniffer,
-    // we'll treat the whole payload as the message if it's valid UTF-8.
-    
-    // Syslog over UDP (RFC 5426) usually just sends the message.
-    // The message often starts with <PRI> but we can just print the whole thing.
-    
     if packet.is_empty() {
         return None;
     }
 
     match std::str::from_utf8(packet) {
-        Ok(s) => Some(SyslogPacket {
-            message: s.to_string(),
-        }),
-        Err(_) => None, // Not valid UTF-8, maybe not a text syslog message
+        Ok(s) => {
+            let mut hostname = None;
+            
+            // Try RFC 5424
+            if let Some(caps) = rfc5424_regex().captures(s) {
+                if let Some(host) = caps.get(4) {
+                     hostname = Some(host.as_str().to_string());
+                }
+            } 
+            // Try RFC 3164
+            else if let Some(caps) = rfc3164_regex().captures(s) {
+                 if let Some(host) = caps.get(3) {
+                     hostname = Some(host.as_str().to_string());
+                }
+            }
+
+            Some(SyslogPacket {
+                message: s.to_string(),
+                hostname,
+            })
+        },
+        Err(_) => None, 
     }
 }
 

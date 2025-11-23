@@ -1,30 +1,17 @@
-use clap::Parser;
 use log::debug;
 use pcap::Device;
 use std::env;
 use syslog_sniffer::parse_syslog_packet;
 
+mod config;
+
+// debug run
+// cargo run -- --interface eth0
+//
 // debug run
 // cargo run -- --interface eth0
 //
 /// Search for a pattern in a file and display the lines that contain it.
-#[derive(Parser)]
-#[command(name = "syslog_sniffer")]
-#[command(bin_name = "syslog_sniffer")]
-struct Cli {
-    #[arg(short, long, default_value_t = 514)]
-    port: usize,
-    #[arg(short, long)]
-    interface: String,
-    #[arg(short, long, default_value_t = false)]
-    debug: bool,
-    #[arg(long, default_value_t = 10)]
-    interval: u64,
-    #[arg(long, default_value_t = false)]
-    periodic: bool,
-    #[arg(long, default_value_t = 5)]
-    frequency: u64,
-}
 
 #[derive(serde::Serialize)]
 struct JsonSummary {
@@ -39,15 +26,15 @@ struct HostStats {
 }
 
 fn main() {
-    let args = Cli::parse();
+    let args = config::Config::parse();
 
-    if args.debug {
-        env::set_var("RUST_LOG", "debug");
-    } else if env::var("RUST_LOG").is_err() {
-        // Default to error only (quiet) unless RUST_LOG is set
-        env::set_var("RUST_LOG", "error");
+    let mut builder = env_logger::Builder::from_default_env();
+    let env_rust_log_is_set = env::var("RUST_LOG").is_ok();
+
+    if let Some(level) = config::determine_log_level(args.debug, env_rust_log_is_set) {
+        builder.filter_level(level);
     }
-    env_logger::init();
+    builder.init();
 
     debug!("Port to sniff: {:?}", args.port);
     debug!("Interface to sniff: {:?}", args.interface);

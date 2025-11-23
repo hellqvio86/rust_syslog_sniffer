@@ -30,7 +30,7 @@ fn main() {
 
     let mut builder = env_logger::Builder::from_default_env();
     let env_rust_log_is_set = env::var("RUST_LOG").is_ok();
-    
+
     if let Some(level) = config::determine_log_level(args.debug, env_rust_log_is_set) {
         builder.filter_level(level);
     }

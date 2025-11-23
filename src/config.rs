@@ -25,7 +25,6 @@ impl Config {
     }
 }
 
-
 // Revised helper to match main.rs logic exactly:
 // Logic:
 // 1. If debug flag is true -> Debug
@@ -57,14 +56,23 @@ mod tests {
     #[test]
     fn test_log_level_debug_flag() {
         // Debug flag true -> Debug
-        assert_eq!(determine_log_level(true, false), Some(log::LevelFilter::Debug));
-        assert_eq!(determine_log_level(true, true), Some(log::LevelFilter::Debug));
+        assert_eq!(
+            determine_log_level(true, false),
+            Some(log::LevelFilter::Debug)
+        );
+        assert_eq!(
+            determine_log_level(true, true),
+            Some(log::LevelFilter::Debug)
+        );
     }
 
     #[test]
     fn test_log_level_default() {
         // Debug false, Env not set -> Error
-        assert_eq!(determine_log_level(false, false), Some(log::LevelFilter::Error));
+        assert_eq!(
+            determine_log_level(false, false),
+            Some(log::LevelFilter::Error)
+        );
     }
 
     #[test]
@@ -78,7 +86,7 @@ mod tests {
         // Only interface is required
         let args = vec!["syslog_sniffer", "--interface", "eth0"];
         let config = Config::parse_from(args);
-        
+
         assert_eq!(config.interface, "eth0");
         assert_eq!(config.port, 514); // Default port
         assert_eq!(config.debug, false); // Default debug
@@ -91,12 +99,16 @@ mod tests {
     fn test_parse_all_args() {
         let args = vec![
             "syslog_sniffer",
-            "--interface", "eth0",
-            "--port", "1024",
+            "--interface",
+            "eth0",
+            "--port",
+            "1024",
             "--debug",
-            "--interval", "20",
+            "--interval",
+            "20",
             "--periodic",
-            "--frequency", "15"
+            "--frequency",
+            "15",
         ];
         let config = Config::parse_from(args);
 

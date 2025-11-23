@@ -6,7 +6,6 @@ type-complexity-threshold = 150
 too-many-lines-threshold = 100
 single-char-binding-names-threshold = 4
 array-size-threshold = 512000
-struct-excessive-bools-threshold = 3
 literal-representation-threshold = 16384
 disallowed-methods = [
     "std::panic::panic_any",

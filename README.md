@@ -39,7 +39,10 @@ docker build -t rust-syslog-sniffer:latest .
 # Run with default options
 make docker-run
 
-# Run with custom interface
+# Run with custom arguments
+make docker-run ARGS="--interface eth0 --port 514"
+
+# Run with custom interface (manual docker command)
 docker run --rm --cap-add=NET_RAW --cap-add=NET_ADMIN \
   --network host \
   rust-syslog-sniffer:latest --interface eth0
@@ -49,6 +52,9 @@ make docker-run-interactive
 ```
 
 **Note:** The container requires `NET_RAW` and `NET_ADMIN` capabilities for packet capture. Using `--network host` allows the container to access the host's network interfaces.
+
+> [!NOTE]
+> Capturing on certain interfaces (like `any` or `lo`) might require the container to run in privileged mode or with additional capabilities depending on your system configuration. If you encounter `PcapError("socket: Operation not permitted")`, try running the docker command manually with `--privileged`.
 
 #### Push to Registry
 

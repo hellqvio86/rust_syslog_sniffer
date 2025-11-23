@@ -43,7 +43,7 @@ docker-run: ## Run Docker container
 		--cap-add=NET_RAW \
 		--cap-add=NET_ADMIN \
 		--network host \
-		$(IMAGE_NAME):$(IMAGE_TAG)
+		$(IMAGE_NAME):$(IMAGE_TAG) $(ARGS)
 
 docker-run-interactive: ## Run Docker container interactively with shell
 	$(DOCKER) run --rm -it \

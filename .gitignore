@@ -1,3 +1,4 @@
 /target
 .cargo/
 sniffer_output.txt
+sniffer_output_docker.txt

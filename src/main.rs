@@ -1,6 +1,8 @@
 use clap::Parser;
 use pcap::Device;
 use syslog_sniffer::parse_syslog_packet;
+use log::{info, debug};
+use std::env;
 
 // debug run 
 // cargo run -- --interface eth0
@@ -14,13 +16,22 @@ struct Cli {
     port: usize,
     #[arg(short, long)]
     interface: String,
+    #[arg(short, long, default_value_t=false)]
+    debug: bool,
 }
 
 fn main() {
     let args = Cli::parse();
 
-    println!("Port to sniff: {:?}", args.port);
-    println!("Interface to sniff: {:?}", args.interface);
+    if args.debug {
+        env::set_var("RUST_LOG", "debug");
+    } else if env::var("RUST_LOG").is_err() {
+        env::set_var("RUST_LOG", "info");
+    }
+    env_logger::init();
+
+    info!("Port to sniff: {:?}", args.port);
+    info!("Interface to sniff: {:?}", args.interface);
 
     let device = Device::list()
         .expect("device lookup failed")
@@ -28,15 +39,23 @@ fn main() {
         .find(|d| d.name == args.interface)
         .unwrap_or_else(|| panic!("Device {} not found", args.interface));
 
-    let mut cap = device.open().expect("Failed to open device");
+    let mut cap = pcap::Capture::from_device(device)
+        .expect("Failed to create capture")
+        .immediate_mode(true)
+        .open()
+        .expect("Failed to open capture");
     
     // Set filter for UDP and the specified port
     let filter = format!("udp port {}", args.port);
     cap.filter(&filter, true).expect("Failed to set filter");
 
-    println!("Listening on {} for UDP port {}", args.interface, args.port);
+    info!("Listening on {} for UDP port {}", args.interface, args.port);
+    info!("Datalink: {:?}", cap.get_datalink());
+    debug!("Starting capture loop");
 
     while let Ok(packet) = cap.next_packet() {
+        debug!("Received packet: len={}", packet.data.len());
+        
         // The packet data includes headers (Ethernet, IP, UDP). 
         // We need to extract the payload.
         // For simplicity in this raw sniffer, we might just try to parse the whole packet 
@@ -63,26 +82,19 @@ fn main() {
         // Let's try to be slightly smarter: skip 42 bytes?
         // Or better, just print the length and the raw data if it looks like text.
         
-        if let Some(syslog) = parse_syslog_packet(packet.data) {
-             // This will include headers as "text" if they happen to be valid UTF-8, 
-             // which is messy.
-             // But `parse_syslog_packet` is what we have.
-             // Let's improve `parse_syslog_packet` later if needed.
-             println!("Captured: {}", syslog.message);
-        } else {
-            // If the whole packet isn't valid UTF-8 (likely due to binary headers),
-            // we might want to scan for the syslog message.
-            // But for now, let's stick to the plan.
-            // Actually, `parse_syslog_packet` taking the whole packet including headers 
-            // and expecting it to be UTF-8 is wrong because headers are binary.
-            
-            // Let's do a quick heuristic: skip headers.
-            // 14 (Eth) + 20 (IP) + 8 (UDP) = 42 bytes.
-            if packet.data.len() > 42 {
-                if let Some(syslog) = parse_syslog_packet(&packet.data[42..]) {
-                    println!("Captured: {}", syslog.message);
-                }
+        // Heuristic: Syslog messages typically start with '<' (PRI).
+        // We'll scan the packet for this character and try to parse from there.
+        // This avoids issues with variable header lengths (e.g. loopback vs ethernet).
+        
+        if let Some(start_index) = packet.data.iter().position(|&b| b == b'<') {
+            if let Some(syslog) = parse_syslog_packet(&packet.data[start_index..]) {
+                println!("Captured: {}", syslog.message);
             }
+        } else {
+             // Fallback: try to parse the whole packet if it's valid UTF-8 (unlikely for raw packets but possible)
+             if let Some(syslog) = parse_syslog_packet(packet.data) {
+                 println!("Captured: {}", syslog.message);
+             }
         }
     }
 }

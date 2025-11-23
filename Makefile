@@ -32,6 +32,10 @@ check: ## Check code without building
 fmt: ## Format code
 	$(CARGO) fmt
 
+format: ## Format code and fix lints
+	$(CARGO) fmt
+	$(CARGO) clippy --fix --allow-dirty --allow-staged
+
 clippy: ## Run clippy linter
 	$(CARGO) clippy -- -D warnings
 

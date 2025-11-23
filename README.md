@@ -104,7 +104,7 @@ Options:
 
 ```bash
 # Format code
-make fmt
+make format
 
 # Run linter
 make clippy
@@ -112,6 +112,16 @@ make clippy
 # Check code
 make check
 ```
+
+## CI/CD
+
+This project uses GitHub Actions for continuous integration. The workflow runs on every push and pull request to `main` or `master` branches.
+
+It performs the following checks:
+- **Formatting:** Checks code formatting with `cargo fmt`.
+- **Linting:** Runs `cargo clippy` to catch common mistakes.
+- **Tests:** Runs unit tests with `cargo test`.
+- **E2E Tests:** Runs the Docker-based end-to-end test script `tests/e2e_docker.sh`.
 
 ## License
 

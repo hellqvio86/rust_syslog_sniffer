@@ -1,7 +1,6 @@
-
 use regex::Regex;
-use std::sync::OnceLock;
 use serde::Serialize;
+use std::sync::OnceLock;
 
 #[derive(Debug, Serialize)]
 pub struct SyslogPacket {
@@ -36,17 +35,17 @@ pub fn parse_syslog_packet(packet: &[u8]) -> Option<SyslogPacket> {
     match std::str::from_utf8(packet) {
         Ok(s) => {
             let mut hostname = None;
-            
+
             // Try RFC 5424
             if let Some(caps) = rfc5424_regex().captures(s) {
                 if let Some(host) = caps.get(4) {
-                     hostname = Some(host.as_str().to_string());
+                    hostname = Some(host.as_str().to_string());
                 }
-            } 
+            }
             // Try RFC 3164
             else if let Some(caps) = rfc3164_regex().captures(s) {
-                 if let Some(host) = caps.get(3) {
-                     hostname = Some(host.as_str().to_string());
+                if let Some(host) = caps.get(3) {
+                    hostname = Some(host.as_str().to_string());
                 }
             }
 
@@ -54,8 +53,8 @@ pub fn parse_syslog_packet(packet: &[u8]) -> Option<SyslogPacket> {
                 message: s.to_string(),
                 hostname,
             })
-        },
-        Err(_) => None, 
+        }
+        Err(_) => None,
     }
 }
 

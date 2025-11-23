@@ -1,4 +1,4 @@
-# rust_syslog_sniffer
+# Rust based syslog sniffer
 
 A simple command-line tool to sniff syslog packets over UDP.
 

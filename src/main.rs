@@ -100,7 +100,13 @@ fn main() {
             if !stats.is_empty() {
                 let mut hosts_map = std::collections::HashMap::new();
                 for (hostname, (count, sample)) in &stats {
-                    hosts_map.insert(hostname.clone(), HostStats { count: *count, sample: sample.clone() });
+                    hosts_map.insert(
+                        hostname.clone(),
+                        HostStats {
+                            count: *count,
+                            sample: sample.clone(),
+                        },
+                    );
                 }
 
                 let summary = JsonSummary {

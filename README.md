@@ -1,6 +1,8 @@
 # Rust Syslog Sniffer
 
-A high-performance syslog packet sniffer written in Rust.
+[![CI](https://github.com/hellqvio86/rust_syslog_sniffer/actions/workflows/ci.yml/badge.svg)](https://github.com/hellqvio86/rust_syslog_sniffer/actions/workflows/ci.yml)
+
+A syslog packet sniffer written in Rust.
 
 ## Building and Running
 
@@ -125,4 +127,4 @@ It performs the following checks:
 
 ## License
 
-[Add your license here]
+[MIT](LICENSE.md)

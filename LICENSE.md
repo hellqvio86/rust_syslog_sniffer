@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2025 syslog_sniffer Developers
+Copyright (c) 2025 rust_syslog_sniffer Developers
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

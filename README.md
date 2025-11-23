@@ -1,62 +1,12 @@
-# Rust based syslog sniffer
+# Rust Syslog Sniffer
 
-A simple command-line tool to sniff syslog packets over UDP.
+[![CI](https://github.com/hellqvio86/rust_syslog_sniffer/actions/workflows/ci.yml/badge.svg)](https://github.com/hellqvio86/rust_syslog_sniffer/actions/workflows/ci.yml)
 
-## Requirements
+A syslog packet sniffer written in Rust.
 
-- Linux
-- `libpcap-dev` (or equivalent for your distro)
-- Rust toolchain
+## Building and Running
 
-## Build
-
-```bash
-cargo build
-```
-
-## Usage
-
-Specify the interface to sniff on with the `--interface` option.
-
-The sniffer requires raw socket access to capture packets. This typically means running as root (via `sudo`) or having the `CAP_NET_RAW` capability set on the binary.
-
-```bash
-# Run with default settings (10s interval, JSON output, quiet)
-sudo ./target/debug/syslog_sniffer --interface eth0
-
-# Run with custom interval (e.g., 30 seconds)
-sudo ./target/debug/syslog_sniffer --interface eth0 --interval 30
-
-# Run with debug logging enabled (prints to stderr)
-sudo ./target/debug/syslog_sniffer --interface eth0 --debug
-```
-
-### Output Format
-
-The application outputs a JSON summary to `stdout` after the interval completes.
-
-```json
-{
-  "interval_seconds": 60,
-  "hosts": {
-    "mymachine.example.com": {
-      "count": 1,
-      "sample": "<165>1 2025-11-23T08:00:00.000Z mymachine.example.com ..."
-    }
-  }
-}
-```
-
-### Options
-
-- `-i, --interface <INTERFACE>`: Network interface to sniff on (required).
-- `-p, --port <PORT>`: UDP port to listen on (default: 514).
-- `--interval <SECONDS>`: Duration to run the sniffer in seconds (default: 10).
-- `-d, --debug`: Enable debug logging to stderr.
-
-## Makefile
-
-A `Makefile` is included for convenience.
+### Local Build
 
 ```bash
 # Build the project
@@ -65,20 +15,116 @@ make build
 # Run tests
 make test
 
-# Run E2E tests
-make test_e2e
-
-# Run the sniffer (defaults to eth0 and port 514)
+# Run the application
 make run
-
-# Run with custom interface and port
-make run INTERFACE=wlan0 PORT=5140
-
-# Clean build artifacts
-make clean
 ```
+
+### Docker Build
+
+This project uses a multi-stage Alpine-based Docker build for minimal image size.
+
+#### Build Docker Image
+
+```bash
+make docker-build
+```
+
+Or manually:
+
+```bash
+docker build -t rust-syslog-sniffer:latest .
+```
+
+#### Run Docker Container
+
+```bash
+# Run with default options
+make docker-run
+
+# Run with custom arguments
+make docker-run ARGS="--interface eth0 --port 514"
+
+# Run with custom interface (manual docker command)
+docker run --rm --cap-add=NET_RAW --cap-add=NET_ADMIN \
+  --network host \
+  rust-syslog-sniffer:latest --interface eth0
+
+# Run interactively
+make docker-run-interactive
+```
+
+**Note:** The container requires `NET_RAW` and `NET_ADMIN` capabilities for packet capture. Using `--network host` allows the container to access the host's network interfaces.
+
+> [!NOTE]
+> Capturing on certain interfaces (like `any` or `lo`) might require the container to run in privileged mode or with additional capabilities depending on your system configuration. If you encounter `PcapError("socket: Operation not permitted")`, try running the docker command manually with `--privileged`.
+
+#### Push to Registry
+
+```bash
+# Tag and push to your registry
+make docker-push REGISTRY=docker.io/yourusername
+
+# Or manually
+docker tag rust-syslog-sniffer:latest docker.io/yourusername/rust-syslog-sniffer:latest
+docker push docker.io/yourusername/rust-syslog-sniffer:latest
+```
+
+### Docker Image Details
+
+- **Base Image:** Alpine Linux (minimal footprint)
+- **Build Stage:** rust:1.83-alpine with build dependencies
+- **Runtime Stage:** alpine:latest with only runtime dependencies
+- **Security:** Runs as non-root user (UID 1000)
+- **Size:** ~20-30MB (final image)
+
+### Available Make Targets
+
+Run `make help` to see all available targets:
+
+```
+make build              # Build the Rust project
+make test               # Run tests
+make docker-build       # Build Docker image
+make docker-run         # Run Docker container
+make docker-push        # Push to registry (requires REGISTRY variable)
+make docker-clean       # Remove Docker images
+make clean              # Clean build artifacts
+```
+
+## Usage
+
+```bash
+rust_syslog_sniffer [OPTIONS]
+
+Options:
+  --interface <INTERFACE>  Network interface to sniff (e.g., eth0)
+  --port <PORT>           Syslog port to monitor (default: 514)
+  --help                  Print help information
+```
+
+## Development
+
+```bash
+# Format code
+make format
+
+# Run linter
+make clippy
+
+# Check code
+make check
+```
+
+## CI/CD
+
+This project uses GitHub Actions for continuous integration. The workflow runs on every push and pull request to `main` or `master` branches.
+
+It performs the following checks:
+- **Formatting:** Checks code formatting with `cargo fmt`.
+- **Linting:** Runs `cargo clippy` to catch common mistakes.
+- **Tests:** Runs unit tests with `cargo test`.
+- **E2E Tests:** Runs the Docker-based end-to-end test script `tests/e2e_docker.sh`.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](https://github.com/hellqvio86/rust_syslog_sniffer/blob/main/LICENSE) file for details.
-
+[MIT](LICENSE.md)

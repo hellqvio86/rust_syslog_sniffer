@@ -20,6 +20,10 @@ struct Cli {
     debug: bool,
     #[arg(long, default_value_t = 10)]
     interval: u64,
+    #[arg(long, default_value_t = false)]
+    periodic: bool,
+    #[arg(long, default_value_t = 5)]
+    frequency: u64,
 }
 
 #[derive(serde::Serialize)]
@@ -83,9 +87,37 @@ fn main() {
     let mut stats: std::collections::HashMap<String, (u64, String)> =
         std::collections::HashMap::new();
 
+    let mut last_report_time = std::time::Instant::now();
+
     loop {
+        // Check if total run interval has expired
         if start_time.elapsed() >= duration {
             break;
+        }
+
+        // Periodic reporting logic
+        if args.periodic && last_report_time.elapsed().as_secs() >= args.frequency {
+            if !stats.is_empty() {
+                let mut hosts_map = std::collections::HashMap::new();
+                for (hostname, (count, sample)) in &stats {
+                    hosts_map.insert(
+                        hostname.clone(),
+                        HostStats {
+                            count: *count,
+                            sample: sample.clone(),
+                        },
+                    );
+                }
+
+                let summary = JsonSummary {
+                    interval_seconds: args.frequency,
+                    hosts: hosts_map,
+                };
+
+                println!("{}", serde_json::to_string_pretty(&summary).unwrap());
+                stats.clear();
+            }
+            last_report_time = std::time::Instant::now();
         }
 
         match cap.next_packet() {
@@ -135,15 +167,25 @@ fn main() {
         }
     }
 
-    let mut hosts_map = std::collections::HashMap::new();
-    for (hostname, (count, sample)) in stats {
-        hosts_map.insert(hostname, HostStats { count, sample });
+    // Print final summary if not periodic, or if there are leftover stats in periodic mode
+    if !args.periodic || !stats.is_empty() {
+        let mut hosts_map = std::collections::HashMap::new();
+        for (hostname, (count, sample)) in stats {
+            hosts_map.insert(hostname, HostStats { count, sample });
+        }
+
+        // For periodic, the last interval might be shorter than frequency
+        let interval = if args.periodic {
+            last_report_time.elapsed().as_secs()
+        } else {
+            args.interval
+        };
+
+        let summary = JsonSummary {
+            interval_seconds: interval,
+            hosts: hosts_map,
+        };
+
+        println!("{}", serde_json::to_string_pretty(&summary).unwrap());
     }
-
-    let summary = JsonSummary {
-        interval_seconds: args.interval,
-        hosts: hosts_map,
-    };
-
-    println!("{}", serde_json::to_string_pretty(&summary).unwrap());
 }

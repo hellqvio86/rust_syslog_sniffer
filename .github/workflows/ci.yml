@@ -42,3 +42,8 @@ jobs:
       run: |
         chmod +x tests/e2e_docker.sh
         ./tests/e2e_docker.sh
+
+    - name: Run Docker Periodic E2E Test
+      run: |
+        chmod +x tests/e2e_periodic_docker.sh
+        ./tests/e2e_periodic_docker.sh

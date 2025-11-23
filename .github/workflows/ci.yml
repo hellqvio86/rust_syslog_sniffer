@@ -24,6 +24,11 @@ jobs:
     - name: Cache Cargo registry and build
       uses: Swatinem/rust-cache@v2
 
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libpcap-dev netcat-openbsd make
+
     - name: Check formatting
       run: cargo fmt -- --check
 
@@ -33,10 +38,7 @@ jobs:
     - name: Run unit tests
       run: cargo test
 
-    - name: Install system dependencies for E2E
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y netcat-openbsd make
+
 
     - name: Run Docker E2E Test
       run: |

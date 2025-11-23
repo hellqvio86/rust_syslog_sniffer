@@ -5,13 +5,16 @@ PORT ?= 514
 
 .PHONY: all build test run clean
 
-all: test build
+all: test test_e2e build
 
 build:
 	cargo build
 
 test:
 	cargo test
+
+test_e2e:
+	./tests/e2e.sh
 
 run:
 	sudo ./target/debug/syslog_sniffer --interface $(INTERFACE) --port $(PORT)

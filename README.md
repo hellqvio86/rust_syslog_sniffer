@@ -42,6 +42,9 @@ make build
 # Run tests
 make test
 
+# Run E2E tests
+make test_e2e
+
 # Run the sniffer (defaults to eth0 and port 514)
 make run
 
@@ -54,5 +57,5 @@ make clean
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](https://github.com/hellqvio86/rust_syslog_sniffer/blob/main/LICENSE) file for details.
 

@@ -1,0 +1,18 @@
+# Clippy Configuration for rust_syslog_sniffer
+cognitive-complexity-threshold = 15
+doc-valid-idents = ["TCP", "UDP", "IP", "PCAP", "BSD"]
+too-many-arguments-threshold = 5
+type-complexity-threshold = 150
+too-many-lines-threshold = 100
+single-char-binding-names-threshold = 4
+array-size-threshold = 512000
+literal-representation-threshold = 16384
+disallowed-methods = [
+    "std::panic::panic_any",
+    "std::env::set_var",
+]
+disallowed-types = []
+max-trait-bounds = 3
+max-struct-bools = 3
+avoid-breaking-exported-api = true
+suppress-restriction-lint-in-const = false

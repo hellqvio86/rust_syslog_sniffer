@@ -39,6 +39,9 @@ format: ## Format code and fix lints
 clippy: ## Run clippy linter
 	$(CARGO) clippy -- -D warnings
 
+coverage: ## Generate coverage report
+	$(CARGO) tarpaulin --out Xml
+
 docker-build: ## Build Docker image
 	$(DOCKER) build -t $(IMAGE_NAME):$(IMAGE_TAG) .
 

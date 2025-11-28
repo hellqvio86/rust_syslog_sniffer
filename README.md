@@ -1,6 +1,7 @@
 # Rust Syslog Sniffer
 
 [![CI](https://github.com/hellqvio86/rust_syslog_sniffer/actions/workflows/ci.yml/badge.svg)](https://github.com/hellqvio86/rust_syslog_sniffer/actions/workflows/ci.yml)
+![Coverage](coverage.svg)
 
 A syslog packet sniffer written in Rust.
 
@@ -88,7 +89,9 @@ make docker-build       # Build Docker image
 make docker-run         # Run Docker container
 make docker-push        # Push to registry (requires REGISTRY variable)
 make docker-clean       # Remove Docker images
+make docker-clean       # Remove Docker images
 make clean              # Clean build artifacts
+make coverage           # Generate coverage report
 ```
 
 ## Usage
@@ -112,7 +115,11 @@ make format
 make clippy
 
 # Check code
+# Check code
 make check
+
+# Generate coverage
+make coverage
 ```
 
 ## CI/CD

@@ -115,7 +115,6 @@ make format
 make clippy
 
 # Check code
-# Check code
 make check
 
 # Generate coverage

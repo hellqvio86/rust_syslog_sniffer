@@ -119,6 +119,7 @@ make check
 
 # Generate coverage
 make coverage
+# Detailed HTML report will be available at tarpaulin-report.html
 ```
 
 ## CI/CD

@@ -70,20 +70,15 @@ jobs:
 
       - name: Generate coverage
         run: |
-          cargo tarpaulin --out Xml > tarpaulin_output.txt
-          cat tarpaulin_output.txt
-          # Extract coverage percentage from stdout or XML
-          # Using grep on stdout for simplicity as tarpaulin prints it at the end
-          COVERAGE=$(cat tarpaulin_output.txt | grep -o "Coverage: [0-9]*.[0-9]*%" | grep -o "[0-9]*.[0-9]*" | head -1)
+          cargo tarpaulin --out Xml
+          
+          # Extract coverage from cobertura.xml
+          COVERAGE_DECIMAL=$(grep -o 'line-rate="[^"]*"' cobertura.xml | head -1 | cut -d'"' -f2)
+          COVERAGE=$(awk -v val="$COVERAGE_DECIMAL" 'BEGIN { printf "%.2f", val * 100 }')
           echo "Coverage: $COVERAGE%"
           
           # Determine color
-          COLOR="red"
-          if (( $(echo "$COVERAGE > 80" | bc -l) )); then
-            COLOR="green"
-          elif (( $(echo "$COVERAGE > 50" | bc -l) )); then
-            COLOR="orange"
-          fi
+          COLOR=$(awk -v val="$COVERAGE" 'BEGIN { if (val > 80) print "green"; else if (val > 50) print "orange"; else print "red" }')
           
           # Download badge
           curl "https://img.shields.io/badge/coverage-$COVERAGE%25-$COLOR" > coverage.svg

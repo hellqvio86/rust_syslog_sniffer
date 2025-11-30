@@ -40,7 +40,7 @@ clippy: ## Run clippy linter
 	$(CARGO) clippy -- -D warnings
 
 coverage: ## Generate coverage report
-	$(CARGO) tarpaulin --out Xml
+	$(CARGO) tarpaulin --out Xml --out Html
 
 docker-build: ## Build Docker image
 	$(DOCKER) build -t $(IMAGE_NAME):$(IMAGE_TAG) .

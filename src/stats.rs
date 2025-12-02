@@ -100,7 +100,7 @@ mod tests {
         let mut tracker = StatsTracker::new();
         tracker.add_entry("host1".to_string(), "msg1".to_string());
         assert!(!tracker.is_empty());
-        
+
         tracker.clear();
         assert!(tracker.is_empty());
         let summary = tracker.get_summary(10);

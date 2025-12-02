@@ -24,7 +24,8 @@ impl PcapCapture {
         cap.filter(&filter, true)
             .map_err(|e| format!("Failed to set filter: {}", e))?;
 
-        let cap = cap.setnonblock()
+        let cap = cap
+            .setnonblock()
             .map_err(|e| format!("Failed to set non-blocking mode: {}", e))?;
 
         Ok(Self { capture: cap })
@@ -63,7 +64,10 @@ mod tests {
         // The error message depends on pcap implementation/system, but usually contains "not found" or similar
         // or just fails to find it in the list.
         // Our code says: .ok_or_else(|| format!("Device {} not found", interface))?;
-        assert!(err.contains("Device non_existent_interface_xyz not found") || err.contains("Device lookup failed"));
+        assert!(
+            err.contains("Device non_existent_interface_xyz not found")
+                || err.contains("Device lookup failed")
+        );
     }
 
     #[test]

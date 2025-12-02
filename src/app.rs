@@ -124,7 +124,9 @@ mod tests {
             frequency: 0,
         };
 
-        let packet_data = "<13>Oct 11 22:14:15 mymachine su: su root".as_bytes().to_vec();
+        let packet_data = "<13>Oct 11 22:14:15 mymachine su: su root"
+            .as_bytes()
+            .to_vec();
         let packets = vec![
             Ok(Some(PacketData { data: packet_data })),
             Ok(None), // Simulate timeout
@@ -146,10 +148,14 @@ mod tests {
             frequency: 0, // Report every iteration (effectively)
         };
 
-        let packet_data = "<13>Oct 11 22:14:15 mymachine su: su root".as_bytes().to_vec();
+        let packet_data = "<13>Oct 11 22:14:15 mymachine su: su root"
+            .as_bytes()
+            .to_vec();
         // Send enough packets to trigger logic
         let packets = vec![
-            Ok(Some(PacketData { data: packet_data.clone() })),
+            Ok(Some(PacketData {
+                data: packet_data.clone(),
+            })),
             Ok(Some(PacketData { data: packet_data })),
             Ok(None),
         ];
@@ -170,7 +176,9 @@ mod tests {
         };
 
         let packets = vec![
-            Ok(Some(PacketData { data: vec![0, 1, 2, 3] })), // Invalid syslog
+            Ok(Some(PacketData {
+                data: vec![0, 1, 2, 3],
+            })), // Invalid syslog
             Ok(Some(PacketData { data: vec![] })), // Empty
             Ok(None),
         ];
@@ -190,10 +198,7 @@ mod tests {
             frequency: 5,
         };
 
-        let packets = vec![
-            Err("Simulated error".to_string()),
-            Ok(None),
-        ];
+        let packets = vec![Err("Simulated error".to_string()), Ok(None)];
 
         let source = MockPacketSource::new(packets);
         run_sniffer(config, source);
@@ -210,10 +215,7 @@ mod tests {
         };
 
         let packet_data = "Simple message without hostname".as_bytes().to_vec();
-        let packets = vec![
-            Ok(Some(PacketData { data: packet_data })),
-            Ok(None),
-        ];
+        let packets = vec![Ok(Some(PacketData { data: packet_data })), Ok(None)];
 
         let source = MockPacketSource::new(packets);
         run_sniffer(config, source);

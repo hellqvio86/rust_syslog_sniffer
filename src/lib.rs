@@ -117,7 +117,9 @@ mod tests {
         let packet_clone = packet.clone();
         assert_eq!(packet, packet_clone);
 
-        let data = PacketData { data: vec![1, 2, 3] };
+        let data = PacketData {
+            data: vec![1, 2, 3],
+        };
         let data_debug = format!("{:?}", data);
         assert!(data_debug.contains("PacketData"));
         let data_clone = data.clone();

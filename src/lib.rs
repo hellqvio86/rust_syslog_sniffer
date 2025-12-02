@@ -1,3 +1,4 @@
+pub mod app;
 pub mod capture;
 pub mod config;
 pub mod stats;
@@ -6,7 +7,17 @@ use regex::Regex;
 use serde::Serialize;
 use std::sync::OnceLock;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct PacketData {
+    pub data: Vec<u8>,
+}
+
+pub trait PacketSource {
+    fn next_packet(&mut self) -> Result<Option<PacketData>, String>;
+    fn get_datalink(&self) -> String;
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq)]
 pub struct SyslogPacket {
     pub message: String,
     pub hostname: Option<String>,
@@ -83,5 +94,33 @@ mod tests {
     fn test_parse_invalid_utf8() {
         let data = [0xff, 0xff, 0xff];
         assert!(parse_syslog_packet(&data).is_none());
+    }
+    #[test]
+    fn test_parse_no_hostname() {
+        let data = "Simple message".as_bytes();
+        let packet = parse_syslog_packet(data).unwrap();
+        assert_eq!(packet.message, "Simple message");
+        assert!(packet.hostname.is_none());
+    }
+
+    #[test]
+    fn test_debug_impls() {
+        let packet = SyslogPacket {
+            message: "msg".to_string(),
+            hostname: Some("host".to_string()),
+        };
+        let debug_str = format!("{:?}", packet);
+        assert!(debug_str.contains("SyslogPacket"));
+        assert!(debug_str.contains("msg"));
+        assert!(debug_str.contains("host"));
+
+        let packet_clone = packet.clone();
+        assert_eq!(packet, packet_clone);
+
+        let data = PacketData { data: vec![1, 2, 3] };
+        let data_debug = format!("{:?}", data);
+        assert!(data_debug.contains("PacketData"));
+        let data_clone = data.clone();
+        assert_eq!(data, data_clone);
     }
 }

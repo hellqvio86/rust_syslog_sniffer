@@ -89,4 +89,21 @@ mod tests {
         // So the sample is the FIRST message encountered.
         assert_eq!(summary.hosts["host1"].sample, "msg1");
     }
+    #[test]
+    fn test_stats_tracker_default() {
+        let tracker = StatsTracker::default();
+        assert!(tracker.is_empty());
+    }
+
+    #[test]
+    fn test_stats_tracker_clear() {
+        let mut tracker = StatsTracker::new();
+        tracker.add_entry("host1".to_string(), "msg1".to_string());
+        assert!(!tracker.is_empty());
+        
+        tracker.clear();
+        assert!(tracker.is_empty());
+        let summary = tracker.get_summary(10);
+        assert!(summary.hosts.is_empty());
+    }
 }

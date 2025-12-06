@@ -94,7 +94,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     
     steps:
       - uses: actions/checkout@v6
@@ -135,11 +135,26 @@ jobs:
       - name: Build release binary
         run: cargo build --release
 
+      - name: Rename binary with version
+        run: |
+          cp target/release/syslog_sniffer target/release/syslog_sniffer_${{ steps.meta.outputs.version }}_linux_amd64
+
       - name: Upload Binary Artifact
         uses: actions/upload-artifact@v4
         with:
           name: syslog_sniffer_${{ steps.meta.outputs.version }}_linux_amd64
-          path: target/release/syslog_sniffer
+          path: target/release/syslog_sniffer_${{ steps.meta.outputs.version }}_linux_amd64
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.meta.outputs.version }}
+          name: Release v${{ steps.meta.outputs.version }}
+          files: target/release/syslog_sniffer_${{ steps.meta.outputs.version }}_linux_amd64
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 
 

@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/hellqvio86/rust_syslog_sniffer/actions/workflows/ci.yml/badge.svg)](https://github.com/hellqvio86/rust_syslog_sniffer/actions/workflows/ci.yml)
 ![Coverage](coverage.svg)
+![GitHub Release](https://img.shields.io/github/v/release/hellqvio86/rust_syslog_sniffer)
 
 A syslog packet sniffer written in Rust.
 

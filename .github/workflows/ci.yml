@@ -151,7 +151,7 @@ jobs:
           tag_name: v${{ steps.meta.outputs.version }}
           name: Release v${{ steps.meta.outputs.version }}
           files: target/release/syslog_sniffer_${{ steps.meta.outputs.version }}_linux_amd64
-          draft: false
+          draft: true
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

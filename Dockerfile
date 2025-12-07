@@ -28,17 +28,17 @@ RUN apk add --no-cache \
     libgcc
 
 # Create a non-root user
-RUN addgroup -g 1000 sniffer && \
-    adduser -D -u 1000 -G sniffer sniffer
+#RUN addgroup -g 1000 sniffer && \
+#    adduser -D -u 1000 -G sniffer sniffer
 
 # Copy the binary from builder
 COPY --from=builder /usr/src/app/target/release/syslog_sniffer /usr/local/bin/syslog_sniffer
 
 # Set ownership
-RUN chown sniffer:sniffer /usr/local/bin/syslog_sniffer
+#RUN chown sniffer:sniffer /usr/local/bin/syslog_sniffer
 
 # Switch to non-root user
-USER sniffer
+#USER sniffer
 
 # Set the startup command
 ENTRYPOINT ["/usr/local/bin/syslog_sniffer"]

@@ -3,7 +3,7 @@
 # Variables
 CARGO = cargo
 DOCKER = docker
-IMAGE_NAME = rust-syslog-sniffer
+IMAGE_NAME = syslog_sniffer
 IMAGE_TAG = latest
 REGISTRY ?= # Set your registry here, e.g., docker.io/username
 

@@ -8,7 +8,7 @@ make docker-build
 # Define variables
 INTERFACE="lo"
 PORT=5514
-IMAGE_NAME="rust-syslog-sniffer:latest"
+IMAGE_NAME="syslog_sniffer:latest"
 
 # Start the sniffer in the background using Docker
 # We use --network host to sniff on the host interface 'lo'

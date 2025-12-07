@@ -28,6 +28,7 @@ make run
 
 - **linux/amd64**: Standard 64-bit Intel/AMD systems
 - **linux/arm64**: Raspberry Pi 3, 4, 5, and other ARM64 devices
+- **linux/arm/v7**: 32-bit Raspberry Pi and other ARMv7 devices
 
 ### Docker Build
 
@@ -97,11 +98,9 @@ docker push docker.io/yourusername/syslog_sniffer:latest
 
 ### Docker Image Details
 
-- **Base Image:** Alpine Linux (minimal footprint)
-- **Build Stage:** rust:1.83-alpine with build dependencies
-- **Runtime Stage:** alpine:latest with only runtime dependencies
+- **Base Image:** Debian Trixie Slim (glibc compatibility, optimized size)
 - **Security:** Runs as non-root user (UID 1000)
-- **Size:** ~20-30MB (final image)
+- **Size:** ~30MB (final image)
 
 ### Available Make Targets
 
@@ -114,7 +113,7 @@ make docker-build       # Build Docker image
 make docker-run         # Run Docker container
 make docker-push        # Push to registry (requires REGISTRY variable)
 make docker-clean       # Remove Docker images
-make docker-clean       # Remove Docker images
+
 make clean              # Clean build artifacts
 make coverage           # Generate coverage report
 ```

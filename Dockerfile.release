@@ -1,19 +1,19 @@
-FROM alpine:latest
+FROM debian:trixie-slim
 
 # Install runtime dependencies
-RUN apk add --no-cache \
-    libpcap \
-    libgcc
+RUN apt-get update && apt-get install -y \
+    libpcap0.8 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user
-RUN addgroup -g 1000 sniffer && \
-    adduser -D -u 1000 -G sniffer sniffer
+RUN groupadd -g 1000 sniffer && \
+    useradd -u 1000 -g sniffer -m sniffer
 
 # Automatic argument provided by Docker Buildx
 ARG TARGETARCH
 
 # Copy the specific binary for this architecture
-# Binaries must be prepared as syslog_sniffer_amd64 and syslog_sniffer_arm64
+# Binaries must be prepared as syslog_sniffer_amd64, syslog_sniffer_arm64, syslog_sniffer_arm
 COPY syslog_sniffer_${TARGETARCH} /usr/local/bin/syslog_sniffer
 
 # Set ownership and permissions

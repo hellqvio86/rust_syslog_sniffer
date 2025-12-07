@@ -62,18 +62,18 @@ make docker-run-interactive
 
 #### Manual Docker Usage
 
-The image is published on Docker Hub at: [docker.io/hellqvio86/rust_syslog_sniffer](https://hub.docker.com/r/hellqvio86/rust_syslog_sniffer)
+The image is published on Docker Hub at: [docker.io/hellqvio/rust_syslog_sniffer](https://hub.docker.com/r/hellqvio/rust_syslog_sniffer)
 
 If you prefer not to use `make`, you can run the Docker container directly using the absolute address:
 
 ```bash
 # Basic run
 docker run --rm --cap-add=NET_RAW --cap-add=NET_ADMIN --network host \
-  docker.io/hellqvio86/rust_syslog_sniffer:latest --interface eth0
+  docker.io/hellqvio/rust_syslog_sniffer:latest --interface eth0
 
 # With custom arguments
 docker run --rm --cap-add=NET_RAW --cap-add=NET_ADMIN --network host \
-  docker.io/hellqvio86/rust_syslog_sniffer:latest --interface eth0 --port 1514
+  docker.io/hellqvio/rust_syslog_sniffer:latest --interface eth0 --port 1514
 ```
 
 **Note:** The container requires `NET_RAW` and `NET_ADMIN` capabilities for packet capture. Using `--network host` allows the container to access the host's network interfaces.

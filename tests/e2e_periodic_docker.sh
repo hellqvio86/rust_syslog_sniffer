@@ -16,7 +16,7 @@ docker run --rm \
   --cap-add=NET_RAW \
   --cap-add=NET_ADMIN \
   --user root \
-  rust-syslog-sniffer:latest \
+  syslog_sniffer:latest \
   --interface lo \
   --port 5141 \
   --interval 10 \

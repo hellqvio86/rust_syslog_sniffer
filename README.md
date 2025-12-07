@@ -39,7 +39,7 @@ make docker-build
 Or manually:
 
 ```bash
-docker build -t rust-syslog-sniffer:latest .
+docker build -t syslog_sniffer:latest .
 ```
 
 #### Run Docker Container
@@ -54,7 +54,7 @@ make docker-run ARGS="--interface eth0 --port 514"
 # Run with custom interface (manual docker command)
 docker run --rm --cap-add=NET_RAW --cap-add=NET_ADMIN \
   --network host \
-  rust-syslog-sniffer:latest --interface eth0
+  syslog_sniffer:latest --interface eth0
 
 # Run interactively
 make docker-run-interactive
@@ -62,18 +62,18 @@ make docker-run-interactive
 
 #### Manual Docker Usage
 
-The image is published on Docker Hub at: [docker.io/hellqvio/rust_syslog_sniffer](https://hub.docker.com/r/hellqvio/rust_syslog_sniffer)
+The image is published on Docker Hub at: [docker.io/hellqvio/syslog_sniffer](https://hub.docker.com/r/hellqvio/syslog_sniffer)
 
 If you prefer not to use `make`, you can run the Docker container directly using the absolute address:
 
 ```bash
 # Basic run
 docker run --rm --cap-add=NET_RAW --cap-add=NET_ADMIN --network host \
-  docker.io/hellqvio/rust_syslog_sniffer:latest --interface eth0
+  docker.io/hellqvio/syslog_sniffer:latest --interface eth0
 
 # With custom arguments
 docker run --rm --cap-add=NET_RAW --cap-add=NET_ADMIN --network host \
-  docker.io/hellqvio/rust_syslog_sniffer:latest --interface eth0 --port 1514
+  docker.io/hellqvio/syslog_sniffer:latest --interface eth0 --port 1514
 ```
 
 **Note:** The container requires `NET_RAW` and `NET_ADMIN` capabilities for packet capture. Using `--network host` allows the container to access the host's network interfaces.
@@ -88,8 +88,8 @@ docker run --rm --cap-add=NET_RAW --cap-add=NET_ADMIN --network host \
 make docker-push REGISTRY=docker.io/yourusername
 
 # Or manually
-docker tag rust-syslog-sniffer:latest docker.io/yourusername/rust-syslog-sniffer:latest
-docker push docker.io/yourusername/rust-syslog-sniffer:latest
+docker tag syslog_sniffer:latest docker.io/yourusername/syslog_sniffer:latest
+docker push docker.io/yourusername/syslog_sniffer:latest
 ```
 
 ### Docker Image Details
@@ -119,7 +119,7 @@ make coverage           # Generate coverage report
 ## Usage
 
 ```bash
-rust_syslog_sniffer [OPTIONS]
+syslog_sniffer [OPTIONS]
 
 Options:
   --interface <INTERFACE>  Network interface to sniff (e.g., eth0)

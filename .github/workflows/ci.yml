@@ -91,7 +91,6 @@ jobs:
 
   build-release-binaries:
     needs: build-and-test
-    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -118,6 +117,21 @@ jobs:
       - name: Install system dependencies (Cross)
         if: matrix.target != 'x86_64-unknown-linux-gnu'
         run: |
+          # 1. Restrict existing sources to amd64
+          if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+             # DEB822 format (Ubuntu 24.04+)
+             sudo sed -i 's/Types: deb/Types: deb\nArchitectures: amd64/' /etc/apt/sources.list.d/ubuntu.sources
+          fi
+          
+          if [ -f /etc/apt/sources.list ]; then
+             # One-line format
+             sudo sed -i 's/^deb/deb [arch=amd64]/' /etc/apt/sources.list
+          fi
+          
+          # 2. Add ports source for target architecture
+          echo "deb [arch=${{ matrix.arch }}] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs) main universe multiverse restricted" | sudo tee /etc/apt/sources.list.d/ports.list
+          echo "deb [arch=${{ matrix.arch }}] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs)-updates main universe multiverse restricted" | sudo tee -a /etc/apt/sources.list.d/ports.list
+          
           sudo dpkg --add-architecture ${{ matrix.arch }}
           sudo apt-get update
           sudo apt-get install -y libpcap-dev:${{ matrix.arch }} ${{ matrix.gcc }}
@@ -139,8 +153,10 @@ jobs:
         run: |
           if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
             export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+            export PKG_CONFIG_PATH_aarch64_unknown_linux_gnu=/usr/lib/aarch64-linux-gnu/pkgconfig
           elif [ "${{ matrix.target }}" = "armv7-unknown-linux-gnueabihf" ]; then
             export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc
+            export PKG_CONFIG_PATH_armv7_unknown_linux_gnueabihf=/usr/lib/arm-linux-gnueabihf/pkgconfig
           fi
           cargo build --release --target ${{ matrix.target }}
 
@@ -164,6 +180,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -183,6 +202,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/syslog_sniffer:latest

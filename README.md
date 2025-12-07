@@ -23,8 +23,8 @@ make run
 
 ### Supported Architectures
 
-- ![amd64](https://img.shields.io/badge/arch-amd64-blue) **linux/amd64**: Standard 64-bit Intel/AMD systems
-- ![arm64](https://img.shields.io/badge/arch-arm64-blue) **linux/arm64**: Raspberry Pi 3, 4, 5, and other ARM64 devices
+- **linux/amd64**: Standard 64-bit Intel/AMD systems
+- **linux/arm64**: Raspberry Pi 3, 4, 5, and other ARM64 devices
 
 ### Docker Build
 

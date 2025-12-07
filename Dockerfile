@@ -34,11 +34,9 @@ RUN apk add --no-cache \
 # Copy the binary from builder
 COPY --from=builder /usr/src/app/target/release/syslog_sniffer /usr/local/bin/syslog_sniffer
 
-# Set ownership
-#RUN chown sniffer:sniffer /usr/local/bin/syslog_sniffer
+# Set permissions
+RUN chmod +x /usr/local/bin/syslog_sniffer
 
-# Switch to non-root user
-#USER sniffer
 
 # Set the startup command
 ENTRYPOINT ["/usr/local/bin/syslog_sniffer"]

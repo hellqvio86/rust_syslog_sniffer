@@ -102,6 +102,9 @@ jobs:
           - target: aarch64-unknown-linux-gnu
             arch: arm64
             gcc: gcc-aarch64-linux-gnu
+          - target: armv7-unknown-linux-gnueabihf
+            arch: armhf
+            gcc: gcc-arm-linux-gnueabihf
 
     steps:
       - uses: actions/checkout@v6
@@ -152,6 +155,9 @@ jobs:
           if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
             export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
             export PKG_CONFIG_PATH_aarch64_unknown_linux_gnu=/usr/lib/aarch64-linux-gnu/pkgconfig
+          elif [ "${{ matrix.target }}" = "armv7-unknown-linux-gnueabihf" ]; then
+             export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc
+             export PKG_CONFIG_PATH_armv7_unknown_linux_gnueabihf=/usr/lib/arm-linux-gnueabihf/pkgconfig
           fi
           cargo build --release --target ${{ matrix.target }}
 
@@ -234,6 +240,14 @@ jobs:
             echo "Prepared syslog_sniffer_arm64"
           fi
           
+          # Find arm binary (armv7)
+          ARM_BIN=$(find release_assets -name "*_linux_armhf" -type f | head -n 1)
+          if [ -n "$ARM_BIN" ]; then
+            cp "$ARM_BIN" syslog_sniffer_arm
+            chmod +x syslog_sniffer_arm
+            echo "Prepared syslog_sniffer_arm"
+          fi
+          
           ls -l syslog_sniffer_*
 
       - name: Build and push Docker image
@@ -241,7 +255,7 @@ jobs:
         with:
           context: .
           file: Dockerfile.release
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
           tags: ${{ steps.meta_docker.outputs.tags }}
           labels: ${{ steps.meta_docker.outputs.labels }}

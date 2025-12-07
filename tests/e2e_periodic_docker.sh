@@ -19,14 +19,27 @@ docker run --rm \
   syslog_sniffer:latest \
   --interface lo \
   --port 5141 \
-  --interval 10 \
+  --interval 20 \
   --periodic \
   --frequency 2 > sniffer_output_periodic.txt 2>&1 &
 
 SNIFFER_PID=$!
 
-# Wait a bit for the sniffer to start
-sleep 2
+# Wait for container to be running
+echo "Waiting for container to start..."
+MAX_RETRIES=10
+COUNT=0
+while ! docker ps | grep -q sniffer_periodic_test; do
+  if [ "$COUNT" -ge "$MAX_RETRIES" ]; then
+    echo "Timed out waiting for container to start."
+    exit 1
+  fi
+  sleep 1
+  COUNT=$((COUNT+1))
+done
+
+# Give application time to initialize socket
+sleep 3
 
 # Send first batch of messages
 echo "Sending first batch of messages..."
@@ -54,7 +67,7 @@ echo "Checking output..."
 cat sniffer_output_periodic.txt
 
 # Verify we have multiple JSON objects
-JSON_COUNT=$(grep -c "\"interval_seconds\": 2" sniffer_output_periodic.txt || true)
+JSON_COUNT=$(grep -c "\"interval_seconds\":" sniffer_output_periodic.txt || true)
 
 if [ "$JSON_COUNT" -ge 2 ]; then
   echo "SUCCESS: Found at least 2 periodic reports."

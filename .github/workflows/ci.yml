@@ -204,21 +204,49 @@ jobs:
             type=sha
             type=raw,value=${{ steps.meta.outputs.version }}
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta_docker.outputs.tags }}
-          labels: ${{ steps.meta_docker.outputs.labels }}
-
       - name: Download All Artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: syslog_sniffer_*
           path: release_assets
           merge-multiple: true
+
+      - name: Prepare Binaries for Docker
+        run: |
+          ls -R release_assets
+          # Rename binaries to match TARGETARCH (amd64, arm64)
+          # We expect: syslog_sniffer_<version>_linux_<arch>
+          # We want: syslog_sniffer_<arch> at root context
+          
+          # Find amd64 binary
+          AMD64_BIN=$(find release_assets -name "*_linux_amd64" -type f | head -n 1)
+          if [ -n "$AMD64_BIN" ]; then
+            cp "$AMD64_BIN" syslog_sniffer_amd64
+            chmod +x syslog_sniffer_amd64
+            echo "Prepared syslog_sniffer_amd64"
+          fi
+
+          # Find arm64 binary
+          ARM64_BIN=$(find release_assets -name "*_linux_arm64" -type f | head -n 1)
+          if [ -n "$ARM64_BIN" ]; then
+            cp "$ARM64_BIN" syslog_sniffer_arm64
+            chmod +x syslog_sniffer_arm64
+            echo "Prepared syslog_sniffer_arm64"
+          fi
+          
+          ls -l syslog_sniffer_*
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.release
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta_docker.outputs.tags }}
+          labels: ${{ steps.meta_docker.outputs.labels }}
+
+
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1

@@ -82,6 +82,15 @@ docker run --rm --cap-add=NET_RAW --cap-add=NET_ADMIN --network host \
 
 **Note:** The container requires `NET_RAW` and `NET_ADMIN` capabilities for packet capture. Using `--network host` allows the container to access the host's network interfaces.
 
+##### Troubleshooting
+Start bash in the container to debug:
+
+```bash
+docker run -it --rm --entrypoint /bin/bash \
+  --cap-add=NET_RAW --cap-add=NET_ADMIN --network host \
+  docker.io/hellqvio/syslog_sniffer:latest
+```
+
 > [!NOTE]
 > Capturing on certain interfaces (like `any` or `lo`) might require the container to run in privileged mode or with additional capabilities depending on your system configuration. If you encounter `PcapError("socket: Operation not permitted")`, try running the docker command manually with `--privileged`.
 

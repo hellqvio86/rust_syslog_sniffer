@@ -108,7 +108,6 @@ docker push docker.io/yourusername/syslog_sniffer:latest
 ### Docker Image Details
 
 - **Base Image:** Debian Trixie Slim (glibc compatibility, optimized size)
-- **Security:** Runs as non-root user (UID 1000)
 - **Size:** ~30MB (final image)
 
 ### Available Make Targets

@@ -117,6 +117,21 @@ jobs:
       - name: Install system dependencies (Cross)
         if: matrix.target != 'x86_64-unknown-linux-gnu'
         run: |
+          # 1. Restrict existing sources to amd64
+          if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+             # DEB822 format (Ubuntu 24.04+)
+             sudo sed -i 's/Types: deb/Types: deb\nArchitectures: amd64/' /etc/apt/sources.list.d/ubuntu.sources
+          fi
+          
+          if [ -f /etc/apt/sources.list ]; then
+             # One-line format
+             sudo sed -i 's/^deb/deb [arch=amd64]/' /etc/apt/sources.list
+          fi
+          
+          # 2. Add ports source for target architecture
+          echo "deb [arch=${{ matrix.arch }}] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs) main universe multiverse restricted" | sudo tee /etc/apt/sources.list.d/ports.list
+          echo "deb [arch=${{ matrix.arch }}] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs)-updates main universe multiverse restricted" | sudo tee -a /etc/apt/sources.list.d/ports.list
+          
           sudo dpkg --add-architecture ${{ matrix.arch }}
           sudo apt-get update
           sudo apt-get install -y libpcap-dev:${{ matrix.arch }} ${{ matrix.gcc }}

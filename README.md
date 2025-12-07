@@ -3,6 +3,8 @@
 [![CI](https://github.com/hellqvio86/rust_syslog_sniffer/actions/workflows/ci.yml/badge.svg)](https://github.com/hellqvio86/rust_syslog_sniffer/actions/workflows/ci.yml)
 ![Coverage](coverage.svg)
 ![GitHub Release](https://img.shields.io/github/v/release/hellqvio86/rust_syslog_sniffer)
+![amd64](https://img.shields.io/badge/arch-amd64-blue) 
+![arm64](https://img.shields.io/badge/arch-arm64-blue) 
 
 A syslog packet sniffer written in Rust.
 

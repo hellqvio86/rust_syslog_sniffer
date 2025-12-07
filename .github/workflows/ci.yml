@@ -91,7 +91,6 @@ jobs:
 
   build-release-binaries:
     needs: build-and-test
-    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     strategy:
       matrix:

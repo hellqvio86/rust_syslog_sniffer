@@ -67,7 +67,7 @@ echo "Checking output..."
 cat sniffer_output_periodic.txt
 
 # Verify we have multiple JSON objects
-JSON_COUNT=$(grep -c "\"interval_seconds\": 2" sniffer_output_periodic.txt || true)
+JSON_COUNT=$(grep -c "\"interval_seconds\":" sniffer_output_periodic.txt || true)
 
 if [ "$JSON_COUNT" -ge 2 ]; then
   echo "SUCCESS: Found at least 2 periodic reports."

@@ -16,12 +16,8 @@ ARG TARGETARCH
 # Binaries must be prepared as syslog_sniffer_amd64, syslog_sniffer_arm64, syslog_sniffer_arm
 COPY syslog_sniffer_${TARGETARCH} /usr/local/bin/syslog_sniffer
 
-# Set ownership and permissions
-RUN chown sniffer:sniffer /usr/local/bin/syslog_sniffer && \
-    chmod +x /usr/local/bin/syslog_sniffer
-
-# Switch to non-root user
-#USER sniffer
+# Set permissions
+RUN chmod +x /usr/local/bin/syslog_sniffer
 
 ENTRYPOINT ["/usr/local/bin/syslog_sniffer"]
 CMD ["--help"]

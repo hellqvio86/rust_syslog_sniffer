@@ -1,0 +1,27 @@
+FROM alpine:latest
+
+# Install runtime dependencies
+RUN apk add --no-cache \
+    libpcap \
+    libgcc
+
+# Create a non-root user
+RUN addgroup -g 1000 sniffer && \
+    adduser -D -u 1000 -G sniffer sniffer
+
+# Automatic argument provided by Docker Buildx
+ARG TARGETARCH
+
+# Copy the specific binary for this architecture
+# Binaries must be prepared as syslog_sniffer_amd64 and syslog_sniffer_arm64
+COPY syslog_sniffer_${TARGETARCH} /usr/local/bin/syslog_sniffer
+
+# Set ownership and permissions
+RUN chown sniffer:sniffer /usr/local/bin/syslog_sniffer && \
+    chmod +x /usr/local/bin/syslog_sniffer
+
+# Switch to non-root user
+USER sniffer
+
+ENTRYPOINT ["/usr/local/bin/syslog_sniffer"]
+CMD ["--help"]

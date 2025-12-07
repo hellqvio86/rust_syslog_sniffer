@@ -21,9 +21,14 @@ make test
 make run
 ```
 
+### Supported Architectures
+
+- ![amd64](https://img.shields.io/badge/arch-amd64-blue) **linux/amd64**: Standard 64-bit Intel/AMD systems
+- ![arm64](https://img.shields.io/badge/arch-arm64-blue) **linux/arm64**: Raspberry Pi 3, 4, 5, and other ARM64 devices
+
 ### Docker Build
 
-This project uses a multi-stage Alpine-based Docker build for minimal image size.
+This project uses a multi-stage Debian-based Docker build for wide compatibility.
 
 #### Build Docker Image
 

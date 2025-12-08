@@ -84,7 +84,7 @@ jobs:
           curl "https://img.shields.io/badge/coverage-$COVERAGE%25-$COLOR" > coverage.svg
 
       - name: Commit coverage badge
-        uses: stefanzweifel/git-auto-commit-action@v5
+        uses: stefanzweifel/git-auto-commit-action@v7
         with:
           commit_message: Update coverage badge
           file_pattern: coverage.svg
@@ -167,7 +167,7 @@ jobs:
 
       - name: Upload Binary Artifact
         if: github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: syslog_sniffer_${{ steps.meta.outputs.version }}_linux_${{ matrix.arch }}
           path: target/${{ matrix.target }}/release/syslog_sniffer_${{ steps.meta.outputs.version }}_linux_${{ matrix.arch }}
@@ -251,7 +251,7 @@ jobs:
           ls -l syslog_sniffer_*
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile.release

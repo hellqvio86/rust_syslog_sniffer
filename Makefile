@@ -184,3 +184,76 @@ help-alpine:
 	@echo "  docker-run-alpine-interactive - Run Alpine container with shell"
 	@echo "  docker-push-alpine         - Push Alpine image to registry"
 	@echo "  docker-clean-alpine        - Remove Alpine images"
+
+# ============================================================================
+# Alpine Docker Build Targets
+# ============================================================================
+
+IMAGE_NAME_ALPINE ?= rust_syslog_sniffer
+ALPINE_TAG ?= alpine-latest
+PLATFORMS ?= linux/amd64,linux/arm64,linux/arm/v7
+
+.PHONY: docker-build-alpine docker-buildx-alpine docker-run-alpine help-alpine
+
+# Simple single-architecture Alpine build (recommended for local use)
+docker-build-alpine:
+	docker build -f Dockerfile.alpine -t $(IMAGE_NAME_ALPINE):$(ALPINE_TAG) .
+
+# Multi-architecture build using buildx (for production)
+docker-buildx-alpine:
+	docker buildx create --name alpine-builder --use || true
+	docker buildx build \
+		--platform $(PLATFORMS) \
+		-f Dockerfile.alpine.multiarch \
+		-t $(REGISTRY)/$(IMAGE_NAME_ALPINE):$(ALPINE_TAG) \
+		--push \
+		.
+	docker buildx rm alpine-builder
+
+# Build and load for local testing
+docker-build-alpine-local:
+	docker buildx build \
+		--platform linux/amd64 \
+		-f Dockerfile.alpine.multiarch \
+		-t $(IMAGE_NAME_ALPINE):$(ALPINE_TAG) \
+		--load \
+		.
+
+# Run Alpine container
+docker-run-alpine:
+	docker run --rm \
+		--cap-add=NET_RAW \
+		--cap-add=NET_ADMIN \
+		--network host \
+		$(IMAGE_NAME_ALPINE):$(ALPINE_TAG) \
+		$(ARGS)
+
+# Run Alpine container interactively
+docker-run-alpine-interactive:
+	docker run -it --rm \
+		--cap-add=NET_RAW \
+		--cap-add=NET_ADMIN \
+		--network host \
+		--entrypoint /bin/sh \
+		$(IMAGE_NAME_ALPINE):$(ALPINE_TAG)
+
+# Push Alpine image
+docker-push-alpine:
+	docker tag $(IMAGE_NAME_ALPINE):$(ALPINE_TAG) $(REGISTRY)/$(IMAGE_NAME_ALPINE):$(ALPINE_TAG)
+	docker push $(REGISTRY)/$(IMAGE_NAME_ALPINE):$(ALPINE_TAG)
+
+# Clean Alpine images
+docker-clean-alpine:
+	docker rmi $(IMAGE_NAME_ALPINE):$(ALPINE_TAG) 2>/dev/null || true
+	docker rmi $(REGISTRY)/$(IMAGE_NAME_ALPINE):$(ALPINE_TAG) 2>/dev/null || true
+
+# Help for Alpine targets
+help-alpine:
+	@echo "Alpine Docker Targets:"
+	@echo "  docker-build-alpine            - Build Alpine image (single arch, local)"
+	@echo "  docker-buildx-alpine           - Build multi-arch Alpine and push"
+	@echo "  docker-build-alpine-local      - Build multi-arch for local testing"
+	@echo "  docker-run-alpine              - Run Alpine container"
+	@echo "  docker-run-alpine-interactive  - Run Alpine container with shell"
+	@echo "  docker-push-alpine             - Push Alpine image to registry"
+	@echo "  docker-clean-alpine            - Remove Alpine images"

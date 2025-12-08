@@ -11,23 +11,13 @@ This document describes the Alpine Linux-based Docker build for rust_syslog_snif
 
 ## Quick Start
 
-### Build Alpine Image
+### Single Architecture Build (Recommended for Local Testing)
 
 ```bash
-# Build for local architecture
-make docker-build-alpine
+# Build for your current architecture (amd64)
+docker build -f Dockerfile.alpine -t rust_syslog_sniffer:alpine-latest .
 
-# Build for all architectures (requires Docker Buildx)
-make docker-buildx-alpine REGISTRY=docker.io/yourusername
-```
-
-### Run Alpine Container
-
-```bash
-# Basic run
-make docker-run-alpine ARGS="--interface eth0 --port 514"
-
-# Or directly with docker
+# Run it
 docker run --rm \
   --cap-add=NET_RAW \
   --cap-add=NET_ADMIN \
@@ -36,61 +26,90 @@ docker run --rm \
   --interface eth0 --port 514
 ```
 
-### Pull from Docker Hub
+### Multi-Architecture Build (For Production)
 
 ```bash
-# Pull Alpine version
-docker pull docker.io/hellqvio/syslog_sniffer:alpine-latest
+# Build for all platforms at once
+docker buildx build \
+  --platform linux/amd64,linux/arm64,linux/arm/v7 \
+  -f Dockerfile.alpine.multiarch \
+  -t yourusername/syslog_sniffer:alpine-latest \
+  --push \
+  .
+```
 
-# Run it
-docker run --rm \
-  --cap-add=NET_RAW \
-  --cap-add=NET_ADMIN \
-  --network host \
-  docker.io/hellqvio/syslog_sniffer:alpine-latest \
-  --interface eth0
+## Build Methods
+
+### Method 1: Simple Build (Single Architecture)
+
+**File**: `Dockerfile.alpine`
+
+Best for:
+- Local development
+- Testing
+- Single architecture deployments
+
+```bash
+# Build
+docker build -f Dockerfile.alpine -t rust_syslog_sniffer:alpine .
+
+# Run
+docker run --rm --cap-add=NET_RAW --cap-add=NET_ADMIN --network host \
+  rust_syslog_sniffer:alpine --interface eth0
+```
+
+### Method 2: Multi-Architecture Build
+
+**File**: `Dockerfile.alpine.multiarch`
+
+Best for:
+- Production deployments
+- Supporting multiple platforms (x86, ARM, ARM64)
+- Publishing to Docker Hub
+
+```bash
+# Setup buildx (one time)
+docker buildx create --name multiarch-builder --use
+docker buildx inspect --bootstrap
+
+# Build and push for all platforms
+docker buildx build \
+  --platform linux/amd64,linux/arm64,linux/arm/v7 \
+  -f Dockerfile.alpine.multiarch \
+  -t yourusername/syslog_sniffer:alpine-latest \
+  --push \
+  .
+
+# Or build and load locally (single platform)
+docker buildx build \
+  --platform linux/amd64 \
+  -f Dockerfile.alpine.multiarch \
+  -t rust_syslog_sniffer:alpine \
+  --load \
+  .
+```
+
+## Make Targets
+
+```bash
+# Simple single-arch build
+make docker-build-alpine
+
+# Multi-arch build and push
+make docker-buildx-alpine REGISTRY=docker.io/yourusername
+
+# Run Alpine container
+make docker-run-alpine ARGS="--interface eth0"
+
+# Interactive shell for debugging
+make docker-run-alpine-interactive
 ```
 
 ## Supported Architectures
 
-The Alpine build supports the same architectures as the Debian build:
-
 - **linux/amd64**: x86_64 Intel/AMD systems
 - **linux/arm64**: Raspberry Pi 3B+, 4, 5, and other ARM64 devices
 - **linux/arm/v7**: 32-bit Raspberry Pi and ARMv7 devices
-
-## Multi-Architecture Builds
-
-### Using Docker Buildx
-
-```bash
-# Create and use a new builder
-docker buildx create --name alpine-builder --use
-
-# Build for all platforms
-docker buildx build \
-  --platform linux/amd64,linux/arm64,linux/arm/v7 \
-  -f Dockerfile.alpine \
-  -t your-registry/syslog_sniffer:alpine-latest \
-  --push \
-  .
-
-# Clean up
-docker buildx rm alpine-builder
-```
-
-### Build Individual Architectures
-
-```bash
-# AMD64
-make docker-build-alpine-amd64
-
-# ARM64 (for Raspberry Pi 4/5)
-make docker-build-alpine-arm64
-
-# ARMv7 (for Raspberry Pi 3)
-make docker-build-alpine-armv7
-```
 
 ## Comparison: Debian Trixie vs Alpine
 
@@ -107,15 +126,12 @@ make docker-build-alpine-armv7
 
 ### Rust Targets
 
-Alpine uses MUSL libc targets instead of GNU libc:
-
-- `x86_64-unknown-linux-musl` (instead of `x86_64-unknown-linux-gnu`)
-- `aarch64-unknown-linux-musl` (instead of `aarch64-unknown-linux-gnu`)
-- `armv7-unknown-linux-musleabihf` (instead of `armv7-unknown-linux-gnueabihf`)
+Alpine uses MUSL libc targets:
+- `x86_64-unknown-linux-musl`
+- `aarch64-unknown-linux-musl`
+- `armv7-unknown-linux-musleabihf`
 
 ### Build Dependencies
-
-Alpine package equivalents:
 
 | Debian | Alpine | Purpose |
 |--------|--------|---------|
@@ -126,9 +142,17 @@ Alpine package equivalents:
 
 ## Troubleshooting
 
-### Issue: "Operation not permitted" when capturing
+### Build Error: "exit code: 1"
 
-**Solution**: Ensure proper capabilities are set:
+If you get build errors with the multi-arch Dockerfile, use the simple single-arch version:
+
+```bash
+docker build -f Dockerfile.alpine -t rust_syslog_sniffer:alpine .
+```
+
+### "Operation not permitted" when capturing
+
+Ensure proper capabilities:
 
 ```bash
 docker run --rm \
@@ -138,9 +162,9 @@ docker run --rm \
   rust_syslog_sniffer:alpine-latest
 ```
 
-### Issue: Cannot find interface
+### Cannot find interface
 
-**Solution**: Use `--network host` to access host interfaces:
+Use `--network host`:
 
 ```bash
 docker run --rm \
@@ -151,14 +175,11 @@ docker run --rm \
   --interface eth0
 ```
 
-### Issue: Debug container
+### Debug container
 
-**Solution**: Run interactive shell:
+Run interactive shell:
 
 ```bash
-make docker-run-alpine-interactive
-
-# Or directly
 docker run -it --rm \
   --network host \
   --cap-add=NET_RAW \
@@ -179,11 +200,9 @@ To enable:
 
 2. Push to main/master branch or create a release
 
-3. Images will be automatically built and pushed to Docker Hub
+3. Images will be automatically built and pushed
 
 ## Migrating from Debian Trixie
-
-If you're currently using the Debian Trixie build:
 
 ### Pull Alpine Image
 
@@ -194,45 +213,27 @@ docker pull docker.io/hellqvio/syslog_sniffer:alpine-latest
 ### Test Side-by-Side
 
 ```bash
-# Run Debian version
+# Debian version
 docker run ... syslog_sniffer:latest
 
-# Run Alpine version
+# Alpine version  
 docker run ... syslog_sniffer:alpine-latest
 ```
 
-### Update docker-compose.yml
+## Performance Notes
 
-```yaml
-services:
-  syslog_sniffer:
-    image: docker.io/hellqvio/syslog_sniffer:alpine-latest
-    # ... rest of config
-```
-
-## Make Targets
-
-All Alpine-specific targets:
-
-```bash
-make help-alpine
-```
-
-Available targets:
-- `docker-build-alpine` - Build Alpine image locally
-- `docker-buildx-alpine` - Build multi-arch and push
-- `docker-run-alpine` - Run Alpine container
-- `docker-run-alpine-interactive` - Debug shell
-- `docker-push-alpine` - Push to registry
-- `docker-clean-alpine` - Clean up images
-
-## Notes
-
-- Alpine images use static linking, making them more portable
+- Alpine images use static linking for better portability
 - Binary size is similar to Debian builds (~5-8 MB)
-- Runtime performance is comparable to Debian builds
-- Consider pinning Alpine version in production: `FROM alpine:3.19`
+- Runtime performance is comparable
+- Lower memory footprint due to MUSL libc
+
+## Production Recommendations
+
+1. Pin Alpine version: `FROM alpine:3.19` instead of `alpine:latest`
+2. Use multi-stage builds to keep images small
+3. Regularly update dependencies with `cargo update`
+4. Test on target architectures before deployment
 
 ## Support
 
-For issues specific to the Alpine build, please open an issue on GitHub with the `alpine` label.
+For Alpine-specific issues, open a GitHub issue with the `alpine` label.

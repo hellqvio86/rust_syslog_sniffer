@@ -1,0 +1,71 @@
+# Multi-architecture Alpine build using cross-compilation
+# For use with: docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7
+
+ARG TARGETARCH
+ARG TARGETOS
+
+# Stage 1: Build with cross-compilation support
+FROM --platform=$BUILDPLATFORM rust:alpine AS builder
+
+ARG TARGETARCH
+ARG TARGETOS
+ARG BUILDPLATFORM
+
+# Install base dependencies
+RUN apk add --no-cache \
+    musl-dev \
+    gcc \
+    g++ \
+    make \
+    pkgconfig \
+    libpcap-dev \
+    linux-headers \
+    clang \
+    lld
+
+WORKDIR /app
+
+# Copy project files
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src  
+COPY tests ./tests
+
+# Set up cross-compilation environment and build
+RUN set -ex && \
+    case "$TARGETARCH" in \
+        "amd64") \
+            RUST_TARGET="x86_64-unknown-linux-musl" \
+            ;; \
+        "arm64") \
+            RUST_TARGET="aarch64-unknown-linux-musl" && \
+            rustup target add aarch64-unknown-linux-musl && \
+            apk add --no-cache gcc-aarch64-none-elf && \
+            export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-none-elf-gcc \
+            ;; \
+        "arm") \
+            RUST_TARGET="armv7-unknown-linux-musleabihf" && \
+            rustup target add armv7-unknown-linux-musleabihf && \
+            apk add --no-cache gcc-arm-none-eabi && \
+            export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER=arm-none-eabi-gcc \
+            ;; \
+        *) \
+            echo "Unsupported architecture: $TARGETARCH" && exit 1 \
+            ;; \
+    esac && \
+    rustup target add $RUST_TARGET && \
+    cargo build --release --target $RUST_TARGET && \
+    cp target/$RUST_TARGET/release/rust_syslog_sniffer /app/rust_syslog_sniffer
+
+# Stage 2: Runtime
+FROM alpine:latest
+
+RUN apk add --no-cache \
+    libpcap \
+    libgcc \
+    ca-certificates
+
+COPY --from=builder /app/rust_syslog_sniffer /usr/local/bin/rust_syslog_sniffer
+RUN chmod +x /usr/local/bin/rust_syslog_sniffer
+
+ENTRYPOINT ["/usr/local/bin/rust_syslog_sniffer"]
+CMD ["--interface", "eth0", "--port", "514"]

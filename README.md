@@ -32,6 +32,28 @@ make run
 
 ### Docker Build
 
+#### Alpine Linux Build
+
+For a smaller, more efficient image, you can use the Alpine Linux build:
+
+```bash
+# Build Alpine image
+make docker-build-alpine
+
+# Run Alpine container
+make docker-run-alpine ARGS="--interface eth0 --port 514"
+
+# Multi-architecture build
+make docker-buildx-alpine REGISTRY=docker.io/yourusername
+```
+
+See [DOCKER_ALPINE.md](DOCKER_ALPINE.md) for complete Alpine build documentation.
+
+**Image Size Comparison:**
+- Debian Trixie: ~80MB
+- Alpine: ~25-30MB (60-70% smaller)
+
+
 This project uses a multi-stage Debian-based Docker build for wide compatibility.
 
 #### Build Docker Image

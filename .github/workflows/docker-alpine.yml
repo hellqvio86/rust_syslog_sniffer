@@ -47,6 +47,19 @@ jobs:
             type=semver,pattern={{major}}.{{minor}},suffix=-alpine
             type=raw,value=alpine-latest,enable={{is_default_branch}}
 
+      - name: Install MUSL toolchain
+        run: |
+          rustup target add x86_64-unknown-linux-musl
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Build MUSL binary
+        run: |
+          cargo build --release --target x86_64-unknown-linux-musl
+
+      - name: Verify binary exists
+        run: ls -lh target/x86_64-unknown-linux-musl/release/
+
       - name: Build and push Alpine Docker image (amd64)
         uses: docker/build-push-action@v5
         with:

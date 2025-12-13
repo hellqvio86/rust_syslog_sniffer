@@ -1,0 +1,41 @@
+name: 'Check Version Change'
+description: 'Checks if the version in Cargo.toml has changed'
+outputs:
+  changed:
+    description: 'Whether the version changed'
+    value: ${{ steps.check.outputs.changed }}
+  version:
+    description: 'The new version number'
+    value: ${{ steps.check.outputs.version }}
+  previous_version:
+    description: 'The previous version number'
+    value: ${{ steps.check.outputs.previous_version }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Check version change
+      id: check
+      shell: bash
+      run: |
+        # Get current version
+        CURRENT_VERSION=$(grep -m 1 '^version =' Cargo.toml | cut -d '"' -f 2)
+        echo "Current version: $CURRENT_VERSION"
+        
+        # Get previous version from previous commit
+        git fetch --depth=2 origin ${{ github.ref }}
+        PREVIOUS_VERSION=$(git show HEAD~1:Cargo.toml | grep -m 1 '^version =' | cut -d '"' -f 2 || echo "")
+        echo "Previous version: $PREVIOUS_VERSION"
+        
+        # Check if version changed
+        if [ -n "$PREVIOUS_VERSION" ] && [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
+          echo "✓ Version changed from $PREVIOUS_VERSION to $CURRENT_VERSION"
+          echo "changed=true" >> $GITHUB_OUTPUT
+          echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "previous_version=$PREVIOUS_VERSION" >> $GITHUB_OUTPUT
+        else
+          echo "Version unchanged ($CURRENT_VERSION)"
+          echo "changed=false" >> $GITHUB_OUTPUT
+          echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "previous_version=$PREVIOUS_VERSION" >> $GITHUB_OUTPUT
+        fi

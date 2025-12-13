@@ -40,15 +40,53 @@ jobs:
     - name: Run unit tests
       run: cargo test
 
-    - name: Run Docker E2E Test
-      run: |
-        chmod +x tests/e2e_docker.sh
-        ./tests/e2e_docker.sh
+  docker-build-and-test:
+    name: Build and Test Docker Image
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    permissions:
+      contents: read
 
-    - name: Run Docker Periodic E2E Test
-      run: |
-        chmod +x tests/e2e_periodic_docker.sh
-        ./tests/e2e_periodic_docker.sh
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build amd64 image for testing
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: false
+          tags: syslog_sniffer:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          load: true
+
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y netcat-openbsd make
+
+      - name: Run Docker E2E Test
+        env:
+          SKIP_DOCKER_BUILD: "1"
+        run: |
+          chmod +x tests/e2e_docker.sh
+          ./tests/e2e_docker.sh
+
+      - name: Run Docker Periodic E2E Test
+        env:
+          SKIP_DOCKER_BUILD: "1"
+        run: |
+          chmod +x tests/e2e_periodic_docker.sh
+          ./tests/e2e_periodic_docker.sh
 
   coverage:
     runs-on: ubuntu-latest
@@ -172,5 +210,77 @@ jobs:
           name: syslog_sniffer_${{ steps.meta.outputs.version }}_linux_${{ matrix.arch }}
           path: target/${{ matrix.target }}/release/syslog_sniffer_${{ steps.meta.outputs.version }}_linux_${{ matrix.arch }}
 
+  create-release:
+    name: Create Draft Release
+    needs: build-release-binaries
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
 
+      - name: Check if version changed
+        id: version
+        uses: ./.github/actions/check-version-change
+
+      - name: Download release binaries
+        if: steps.version.outputs.changed == 'true'
+        uses: actions/download-artifact@v6
+        with:
+          pattern: syslog_sniffer_*
+          path: release_assets
+          merge-multiple: true
+
+      - name: List downloaded artifacts
+        if: steps.version.outputs.changed == 'true'
+        run: |
+          echo "Downloaded artifacts:"
+          ls -lR release_assets/
+
+      - name: Create Git tag
+        if: steps.version.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${{ steps.version.outputs.version }}" -m "Release v${{ steps.version.outputs.version }}"
+          git push origin "v${{ steps.version.outputs.version }}"
+
+      - name: Create draft release
+        if: steps.version.outputs.changed == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Release v${{ steps.version.outputs.version }}
+          draft: true
+          prerelease: false
+          generate_release_notes: true
+          files: release_assets/*
+          body: |
+            ## Release v${{ steps.version.outputs.version }}
+            
+            This is a draft release. Please review and publish when ready.
+            
+            ### What's Changed
+            <!-- Auto-generated release notes will appear here -->
+            
+            ### Downloads
+            
+            #### Binaries
+            - `syslog_sniffer_${{ steps.version.outputs.version }}_linux_amd64` - Linux x86_64
+            - `syslog_sniffer_${{ steps.version.outputs.version }}_linux_arm64` - Linux ARM64 (Raspberry Pi 3/4/5)
+            - `syslog_sniffer_${{ steps.version.outputs.version }}_linux_armhf` - Linux ARMv7 (32-bit Raspberry Pi)
+            
+            #### Docker Images
+            Multi-architecture Docker images will be built and published when this release is published:
+            ```bash
+            docker pull docker.io/hellqvio/syslog_sniffer:v${{ steps.version.outputs.version }}
+            docker pull docker.io/hellqvio/syslog_sniffer:latest
+            ```
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

@@ -1,60 +1,111 @@
-# Docker Deployment Guide
+# Docker Deployment Guide (Debian)
+
+This project ships with an officially supported **Debian Trixie–based Docker image**.
+
+---
 
 ## Quick Start
 
-1. Place the Dockerfile and updated Makefile in your project root
-2. Build the image: `make docker-build`
-3. Run the container: `make docker-run`
+1. Place the `Dockerfile` and `Makefile` in the project root
+2. Build the image:
+   ```bash
+   make docker-build
+   ```
+3. Run the container:
+   ```bash
+   make docker-run
+   ```
+
+---
 
 ## Files Included
 
-- **Dockerfile**: Multi-stage Alpine build
-- **Makefile**: Updated with Docker targets
-- **README_DOCKER.md**: Updated README with Docker instructions
+- **Dockerfile** – Multi-stage Debian Trixie build
+- **Makefile** – Docker build & run helpers
+- **README_DOCKER.md** – This document
+
+---
 
 ## Integration Steps
 
-1. Copy `Dockerfile` to your project root
-2. Merge `Makefile` with your existing Makefile (or replace it)
-3. Add the Docker section from `README_DOCKER.md` to your README.md
+1. Copy `Dockerfile` to the project root
+2. Merge Docker targets into your existing `Makefile`
+3. Reference this document from `README.md`
 
-## Customization
+---
 
-### Change Image Name
-Edit the Makefile and change:
+## Base Image Policy
+
+This project **only supports Debian Trixie**.
+
+### Why Debian Trixie?
+- Stable `libpcap` support
+- glibc-based (no musl issues)
+- Good cross compile support
+
+---
+
+## Dockerfile
+
+```dockerfile
+# ---- Builder stage ----
+FROM rust:1.83-trixie AS builder
+
+RUN apt-get update && apt-get install -y \
+    libpcap-dev \
+    pkg-config \
+    clang \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+COPY . .
+RUN cargo build --release
+
+# ---- Runtime stage ----
+FROM debian:trixie-slim
+
+RUN apt-get update && apt-get install -y \
+    libpcap0.8 \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /build/target/release/rust_syslog_sniffer /usr/local/bin/rust_syslog_sniffer
+
+ENTRYPOINT ["/usr/local/bin/rust_syslog_sniffer"]
+```
+
+---
+
+## Makefile Targets
+
 ```makefile
-IMAGE_NAME = your-custom-name
+IMAGE_NAME ?= rust_syslog_sniffer
+
+docker-build:
+	docker build -t $(IMAGE_NAME) .
+
+docker-run:
+	docker run --rm -it \
+	  --cap-add=NET_RAW \
+	  --cap-add=NET_ADMIN \
+	  --network host \
+	  $(IMAGE_NAME)
 ```
 
-### Change Base Image Version
-Edit Dockerfile and change:
-```dockerfile
-FROM rust:1.83-alpine AS builder
-```
+---
 
-### Add Build Arguments
-Modify Dockerfile to accept build args:
-```dockerfile
-ARG RUST_VERSION=1.83
-FROM rust:${RUST_VERSION}-alpine AS builder
-```
+## Runtime Requirements
 
-## Troubleshooting
+Packet capture requires elevated privileges:
 
-### Permission Denied
-Ensure the container has necessary capabilities:
 ```bash
 --cap-add=NET_RAW --cap-add=NET_ADMIN
 ```
 
-### Interface Not Found
-Use `--network host` to access host interfaces:
+Host interfaces require:
+
 ```bash
-docker run --network host ...
+--network host
 ```
 
-### Build Fails
-Check that all dependencies are available:
-- libpcap-dev
-- musl-dev
-- pkgconfig
+---

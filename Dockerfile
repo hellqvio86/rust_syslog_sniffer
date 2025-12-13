@@ -25,7 +25,7 @@ FROM debian:trixie-slim
 # Install runtime dependencies
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-       libpcap0.8 \
+       libpcap-dev \
        ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 

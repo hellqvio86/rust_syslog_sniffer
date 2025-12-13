@@ -29,21 +29,17 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build multi-arch image and load amd64 for testing
+      - name: Build amd64 image for testing
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          platforms: linux/amd64
           push: false
           tags: syslog_sniffer:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          outputs: type=docker,dest=/tmp/docker-image.tar
-
-      - name: Load Docker image for testing
-        run: |
-          docker load --input /tmp/docker-image.tar
+          load: true
 
       - name: Install test dependencies
         run: |

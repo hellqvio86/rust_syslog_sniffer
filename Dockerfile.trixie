@@ -1,4 +1,3 @@
-# Build stage (Debian Trixie-based)
 FROM rust:1.83-slim AS builder
 
 # Install build dependencies
@@ -10,29 +9,27 @@ RUN apt-get update \
        ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /usr/src/app
+WORKDIR /app
 
-# Copy manifests and source
+# Copy project files
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
+COPY tests ./tests
 
-# Build the application in release mode
+# Build release binary
 RUN cargo build --release
 
-# Runtime stage (Debian Trixie slim)
+# Runtime image
 FROM debian:trixie-slim
 
-# Install runtime dependencies
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        libpcap0.8 \
        ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the binary from builder
-COPY --from=builder /usr/src/app/target/release/syslog_sniffer /usr/local/bin/syslog_sniffer
+COPY --from=builder /app/target/release/rust_syslog_sniffer /usr/local/bin/rust_syslog_sniffer
+RUN chmod +x /usr/local/bin/rust_syslog_sniffer
 
-RUN chmod +x /usr/local/bin/syslog_sniffer
-
-ENTRYPOINT ["/usr/local/bin/syslog_sniffer"]
-CMD ["--help"]
+ENTRYPOINT ["/usr/local/bin/rust_syslog_sniffer"]
+CMD ["--interface", "eth0", "--port", "514"]

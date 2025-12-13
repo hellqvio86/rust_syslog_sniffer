@@ -84,176 +84,77 @@ endif
 
 all: clean build test docker-build ## Clean, build, test, and create Docker image
 # ============================================================================
-# Alpine Docker Build Targets
+# Trixie Docker Build Targets
 # ============================================================================
 
-# Variables for Alpine builds
-IMAGE_NAME_ALPINE ?= rust_syslog_sniffer
-ALPINE_TAG ?= alpine-latest
+# Variables for Trixie builds
+IMAGE_NAME_TRIXIE ?= rust_syslog_sniffer
+TRIXIE_TAG ?= trixie-latest
 PLATFORMS ?= linux/amd64,linux/arm64,linux/arm/v7
 
-.PHONY: docker-build-alpine docker-buildx-alpine docker-run-alpine docker-push-alpine help-alpine
+.PHONY: docker-build-trixie docker-buildx-trixie docker-run-trixie docker-push-trixie help-trixie
 
-# Single-platform Alpine build
-docker-build-alpine:
-	docker build -f Dockerfile.alpine -t $(IMAGE_NAME_ALPINE):$(ALPINE_TAG) .
+# Single-platform Trixie build
+docker-build-trixie:
+	docker build -f Dockerfile -t $(IMAGE_NAME_TRIXIE):$(TRIXIE_TAG) .
 
 # Multi-architecture build using buildx
-docker-buildx-alpine:
-	docker buildx create --name alpine-builder --use || true
+docker-buildx-trixie:
+	docker buildx create --name trixie-builder --use || true
 	docker buildx build \
 		--platform $(PLATFORMS) \
-		-f Dockerfile.alpine \
-		-t $(REGISTRY)/$(IMAGE_NAME_ALPINE):$(ALPINE_TAG) \
+		-f Dockerfile.trixie.multiarch \
+		-t $(REGISTRY)/$(IMAGE_NAME_TRIXIE):$(TRIXIE_TAG) \
 		--push \
 		.
-	docker buildx rm alpine-builder
+	docker buildx rm trixie-builder
 
 # Build and load for local testing (single arch)
-docker-build-alpine-local:
+docker-build-trixie-local:
 	docker buildx build \
 		--platform linux/amd64 \
-		-f Dockerfile.alpine \
-		-t $(IMAGE_NAME_ALPINE):$(ALPINE_TAG) \
+		-f Dockerfile.trixie.multiarch \
+		-t $(IMAGE_NAME_TRIXIE):$(TRIXIE_TAG) \
 		--load \
 		.
 
-# Build specific architectures
-docker-build-alpine-amd64:
-	docker buildx build \
-		--platform linux/amd64 \
-		-f Dockerfile.alpine \
-		-t $(IMAGE_NAME_ALPINE):alpine-amd64 \
-		--load \
-		.
-
-docker-build-alpine-arm64:
-	docker buildx build \
-		--platform linux/arm64 \
-		-f Dockerfile.alpine \
-		-t $(IMAGE_NAME_ALPINE):alpine-arm64 \
-		--load \
-		.
-
-docker-build-alpine-armv7:
-	docker buildx build \
-		--platform linux/arm/v7 \
-		-f Dockerfile.alpine \
-		-t $(IMAGE_NAME_ALPINE):alpine-armv7 \
-		--load \
-		.
-
-# Run Alpine container
-docker-run-alpine:
+# Run Trixie container
+docker-run-trixie:
 	docker run --rm \
 		--cap-add=NET_RAW \
 		--cap-add=NET_ADMIN \
 		--network host \
-		$(IMAGE_NAME_ALPINE):$(ALPINE_TAG) \
+		$(IMAGE_NAME_TRIXIE):$(TRIXIE_TAG) \
 		$(ARGS)
 
-# Run Alpine container interactively
-docker-run-alpine-interactive:
+# Run Trixie container interactively
+docker-run-trixie-interactive:
 	docker run -it --rm \
 		--cap-add=NET_RAW \
 		--cap-add=NET_ADMIN \
 		--network host \
 		--entrypoint /bin/sh \
-		$(IMAGE_NAME_ALPINE):$(ALPINE_TAG)
+		$(IMAGE_NAME_TRIXIE):$(TRIXIE_TAG)
 
-# Push Alpine image
-docker-push-alpine:
-	docker tag $(IMAGE_NAME_ALPINE):$(ALPINE_TAG) $(REGISTRY)/$(IMAGE_NAME_ALPINE):$(ALPINE_TAG)
-	docker push $(REGISTRY)/$(IMAGE_NAME_ALPINE):$(ALPINE_TAG)
+# Push Trixie image
+docker-push-trixie:
+	docker tag $(IMAGE_NAME_TRIXIE):$(TRIXIE_TAG) $(REGISTRY)/$(IMAGE_NAME_TRIXIE):$(TRIXIE_TAG)
+	docker push $(REGISTRY)/$(IMAGE_NAME_TRIXIE):$(TRIXIE_TAG)
 
-# Clean Alpine images
-docker-clean-alpine:
-	docker rmi $(IMAGE_NAME_ALPINE):$(ALPINE_TAG) 2>/dev/null || true
-	docker rmi $(REGISTRY)/$(IMAGE_NAME_ALPINE):$(ALPINE_TAG) 2>/dev/null || true
+# Clean Trixie images
+docker-clean-trixie:
+	docker rmi $(IMAGE_NAME_TRIXIE):$(TRIXIE_TAG) 2>/dev/null || true
+	docker rmi $(REGISTRY)/$(IMAGE_NAME_TRIXIE):$(TRIXIE_TAG) 2>/dev/null || true
 
-# Help target for Alpine commands
-help-alpine:
-	@echo "Alpine Docker Targets:"
-	@echo "  docker-build-alpine        - Build Alpine image (local architecture)"
-	@echo "  docker-buildx-alpine       - Build and push multi-arch Alpine images"
-	@echo "  docker-build-alpine-local  - Build Alpine for local testing (amd64)"
-	@echo "  docker-build-alpine-amd64  - Build Alpine for amd64"
-	@echo "  docker-build-alpine-arm64  - Build Alpine for arm64"
-	@echo "  docker-build-alpine-armv7  - Build Alpine for armv7"
-	@echo "  docker-run-alpine          - Run Alpine container"
-	@echo "  docker-run-alpine-interactive - Run Alpine container with shell"
-	@echo "  docker-push-alpine         - Push Alpine image to registry"
-	@echo "  docker-clean-alpine        - Remove Alpine images"
+# Help target for Trixie commands
+help-trixie:
+	@echo "Trixie Docker Targets:"
+	@echo "  docker-build-trixie        - Build Trixie image (local architecture)"
+	@echo "  docker-buildx-trixie       - Build and push multi-arch Trixie images"
+	@echo "  docker-build-trixie-local  - Build multi-arch for local testing"
+	@echo "  docker-run-trixie          - Run Trixie container"
+	@echo "  docker-run-trixie-interactive - Run Trixie container with shell"
+	@echo "  docker-push-trixie         - Push Trixie image to registry"
+	@echo "  docker-clean-trixie        - Remove Trixie images"
 
-# ============================================================================
-# Alpine Docker Build Targets
-# ============================================================================
 
-IMAGE_NAME_ALPINE ?= rust_syslog_sniffer
-ALPINE_TAG ?= alpine-latest
-PLATFORMS ?= linux/amd64,linux/arm64,linux/arm/v7
-
-.PHONY: docker-build-alpine docker-buildx-alpine docker-run-alpine help-alpine
-
-# Simple single-architecture Alpine build (recommended for local use)
-docker-build-alpine:
-	docker build -f Dockerfile.alpine -t $(IMAGE_NAME_ALPINE):$(ALPINE_TAG) .
-
-# Multi-architecture build using buildx (for production)
-docker-buildx-alpine:
-	docker buildx create --name alpine-builder --use || true
-	docker buildx build \
-		--platform $(PLATFORMS) \
-		-f Dockerfile.alpine.multiarch \
-		-t $(REGISTRY)/$(IMAGE_NAME_ALPINE):$(ALPINE_TAG) \
-		--push \
-		.
-	docker buildx rm alpine-builder
-
-# Build and load for local testing
-docker-build-alpine-local:
-	docker buildx build \
-		--platform linux/amd64 \
-		-f Dockerfile.alpine.multiarch \
-		-t $(IMAGE_NAME_ALPINE):$(ALPINE_TAG) \
-		--load \
-		.
-
-# Run Alpine container
-docker-run-alpine:
-	docker run --rm \
-		--cap-add=NET_RAW \
-		--cap-add=NET_ADMIN \
-		--network host \
-		$(IMAGE_NAME_ALPINE):$(ALPINE_TAG) \
-		$(ARGS)
-
-# Run Alpine container interactively
-docker-run-alpine-interactive:
-	docker run -it --rm \
-		--cap-add=NET_RAW \
-		--cap-add=NET_ADMIN \
-		--network host \
-		--entrypoint /bin/sh \
-		$(IMAGE_NAME_ALPINE):$(ALPINE_TAG)
-
-# Push Alpine image
-docker-push-alpine:
-	docker tag $(IMAGE_NAME_ALPINE):$(ALPINE_TAG) $(REGISTRY)/$(IMAGE_NAME_ALPINE):$(ALPINE_TAG)
-	docker push $(REGISTRY)/$(IMAGE_NAME_ALPINE):$(ALPINE_TAG)
-
-# Clean Alpine images
-docker-clean-alpine:
-	docker rmi $(IMAGE_NAME_ALPINE):$(ALPINE_TAG) 2>/dev/null || true
-	docker rmi $(REGISTRY)/$(IMAGE_NAME_ALPINE):$(ALPINE_TAG) 2>/dev/null || true
-
-# Help for Alpine targets
-help-alpine:
-	@echo "Alpine Docker Targets:"
-	@echo "  docker-build-alpine            - Build Alpine image (single arch, local)"
-	@echo "  docker-buildx-alpine           - Build multi-arch Alpine and push"
-	@echo "  docker-build-alpine-local      - Build multi-arch for local testing"
-	@echo "  docker-run-alpine              - Run Alpine container"
-	@echo "  docker-run-alpine-interactive  - Run Alpine container with shell"
-	@echo "  docker-push-alpine             - Push Alpine image to registry"
-	@echo "  docker-clean-alpine            - Remove Alpine images"

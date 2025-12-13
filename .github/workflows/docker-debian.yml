@@ -1,4 +1,4 @@
-name: Docker Alpine Build
+name: Docker Trixie Build
 
 on:
   push:
@@ -13,8 +13,8 @@ env:
   IMAGE_NAME: hellqvio/syslog_sniffer
 
 jobs:
-  build-alpine-simple:
-    name: Build Alpine (Single Arch)
+  build-trixie-simple:
+    name: Build Trixie (Single Arch)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -41,30 +41,17 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=ref,event=branch,suffix=-alpine
-            type=ref,event=pr,suffix=-alpine
-            type=semver,pattern={{version}},suffix=-alpine
-            type=semver,pattern={{major}}.{{minor}},suffix=-alpine
-            type=raw,value=alpine-latest,enable={{is_default_branch}}
+            type=ref,event=branch,suffix=-trixie
+            type=ref,event=pr,suffix=-trixie
+            type=semver,pattern={{version}},suffix=-trixie
+            type=semver,pattern={{major}}.{{minor}},suffix=-trixie
+            type=raw,value=trixie-latest,enable={{is_default_branch}}
 
-      - name: Install MUSL toolchain
-        run: |
-          rustup target add x86_64-unknown-linux-musl
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
-
-      - name: Build MUSL binary
-        run: |
-          cargo build --release --target x86_64-unknown-linux-musl
-
-      - name: Verify binary exists
-        run: ls -lh target/x86_64-unknown-linux-musl/release/
-
-      - name: Build and push Alpine Docker image (amd64)
+      - name: Build and push Trixie Docker image (amd64)
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./Dockerfile.alpine
+          file: ./Dockerfile
           platforms: linux/amd64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
@@ -72,12 +59,12 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Test Alpine image
+      - name: Test Trixie image
         run: |
-          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:alpine-latest --help || true
+          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:trixie-latest --help || true
 
-  build-alpine-multiarch:
-    name: Build Alpine (Multi-Arch)
+  build-trixie-multiarch:
+    name: Build Trixie (Multi-Arch)
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
     permissions:
@@ -107,14 +94,14 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=semver,pattern={{version}},suffix=-alpine-multiarch
-            type=semver,pattern={{major}}.{{minor}},suffix=-alpine-multiarch
+            type=semver,pattern={{version}},suffix=-trixie-multiarch
+            type=semver,pattern={{major}}.{{minor}},suffix=-trixie-multiarch
 
-      - name: Build and push multi-arch Alpine image
+      - name: Build and push multi-arch Trixie image
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./Dockerfile.alpine.multiarch
+          file: ./Dockerfile.trixie.multiarch
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
           tags: ${{ steps.meta.outputs.tags }}

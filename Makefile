@@ -83,3 +83,78 @@ ifdef REGISTRY
 endif
 
 all: clean build test docker-build ## Clean, build, test, and create Docker image
+# ============================================================================
+# Trixie Docker Build Targets
+# ============================================================================
+
+# Variables for Trixie builds
+IMAGE_NAME_TRIXIE ?= rust_syslog_sniffer
+TRIXIE_TAG ?= trixie-latest
+PLATFORMS ?= linux/amd64,linux/arm64,linux/arm/v7
+
+.PHONY: docker-build-trixie docker-buildx-trixie docker-run-trixie docker-push-trixie help-trixie
+
+# Single-platform Trixie build
+docker-build-trixie:
+	docker build -f Dockerfile -t $(IMAGE_NAME_TRIXIE):$(TRIXIE_TAG) .
+
+# Multi-architecture build using buildx
+docker-buildx-trixie:
+	docker buildx create --name trixie-builder --use || true
+	docker buildx build \
+		--platform $(PLATFORMS) \
+		-f Dockerfile.trixie.multiarch \
+		-t $(REGISTRY)/$(IMAGE_NAME_TRIXIE):$(TRIXIE_TAG) \
+		--push \
+		.
+	docker buildx rm trixie-builder
+
+# Build and load for local testing (single arch)
+docker-build-trixie-local:
+	docker buildx build \
+		--platform linux/amd64 \
+		-f Dockerfile.trixie.multiarch \
+		-t $(IMAGE_NAME_TRIXIE):$(TRIXIE_TAG) \
+		--load \
+		.
+
+# Run Trixie container
+docker-run-trixie:
+	docker run --rm \
+		--cap-add=NET_RAW \
+		--cap-add=NET_ADMIN \
+		--network host \
+		$(IMAGE_NAME_TRIXIE):$(TRIXIE_TAG) \
+		$(ARGS)
+
+# Run Trixie container interactively
+docker-run-trixie-interactive:
+	docker run -it --rm \
+		--cap-add=NET_RAW \
+		--cap-add=NET_ADMIN \
+		--network host \
+		--entrypoint /bin/sh \
+		$(IMAGE_NAME_TRIXIE):$(TRIXIE_TAG)
+
+# Push Trixie image
+docker-push-trixie:
+	docker tag $(IMAGE_NAME_TRIXIE):$(TRIXIE_TAG) $(REGISTRY)/$(IMAGE_NAME_TRIXIE):$(TRIXIE_TAG)
+	docker push $(REGISTRY)/$(IMAGE_NAME_TRIXIE):$(TRIXIE_TAG)
+
+# Clean Trixie images
+docker-clean-trixie:
+	docker rmi $(IMAGE_NAME_TRIXIE):$(TRIXIE_TAG) 2>/dev/null || true
+	docker rmi $(REGISTRY)/$(IMAGE_NAME_TRIXIE):$(TRIXIE_TAG) 2>/dev/null || true
+
+# Help target for Trixie commands
+help-trixie:
+	@echo "Trixie Docker Targets:"
+	@echo "  docker-build-trixie        - Build Trixie image (local architecture)"
+	@echo "  docker-buildx-trixie       - Build and push multi-arch Trixie images"
+	@echo "  docker-build-trixie-local  - Build multi-arch for local testing"
+	@echo "  docker-run-trixie          - Run Trixie container"
+	@echo "  docker-run-trixie-interactive - Run Trixie container with shell"
+	@echo "  docker-push-trixie         - Push Trixie image to registry"
+	@echo "  docker-clean-trixie        - Remove Trixie images"
+
+

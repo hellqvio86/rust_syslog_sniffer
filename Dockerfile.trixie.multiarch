@@ -1,0 +1,41 @@
+ARG TARGETARCH
+ARG TARGETOS
+ARG BUILDPLATFORM
+
+FROM --platform=$BUILDPLATFORM rust:1.83-slim AS builder
+
+# Install base dependencies
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       build-essential \
+       pkg-config \
+       libpcap-dev \
+       ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy project files
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+COPY tests ./tests
+
+# Build for the target platform (buildx will set the platform)
+RUN set -ex && \
+    cargo build --release && \
+    cp target/release/rust_syslog_sniffer /app/rust_syslog_sniffer
+
+# Runtime
+FROM debian:trixie-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       libpcap0.8 \
+       ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app/rust_syslog_sniffer /usr/local/bin/rust_syslog_sniffer
+RUN chmod +x /usr/local/bin/rust_syslog_sniffer
+
+ENTRYPOINT ["/usr/local/bin/rust_syslog_sniffer"]
+CMD ["--interface", "eth0", "--port", "514"]

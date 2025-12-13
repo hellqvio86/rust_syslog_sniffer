@@ -32,7 +32,22 @@ make run
 
 ### Docker Build
 
-This project uses a multi-stage Debian-based Docker build for wide compatibility.
+#### Trixie Docker Build
+
+The project uses Debian Trixie-based Docker images for runtime compatibility and wider ecosystem support.
+
+```bash
+# Build Trixie image (local architecture)
+make docker-build-trixie
+
+# Run Trixie container
+make docker-run-trixie ARGS="--interface eth0 --port 514"
+
+# Multi-architecture build (pushes to registry)
+make docker-buildx-trixie REGISTRY=docker.io/yourusername
+```
+
+See [DOCKER_TRIXIE.md](DOCKER_TRIXIE.md) for complete Trixie build documentation.
 
 #### Build Docker Image
 

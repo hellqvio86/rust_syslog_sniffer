@@ -47,16 +47,16 @@ jobs:
           sudo apt-get install -y netcat-openbsd make
 
       - name: Run Docker E2E Test
+        env:
+          SKIP_DOCKER_BUILD: "1"
         run: |
-          # Skip the docker build in the test script since we already built it
-          sed -i 's/^make docker-build$/# make docker-build (skipped - already built)/' tests/e2e_docker.sh
           chmod +x tests/e2e_docker.sh
           ./tests/e2e_docker.sh
 
       - name: Run Docker Periodic E2E Test
+        env:
+          SKIP_DOCKER_BUILD: "1"
         run: |
-          # Skip the docker build in the test script since we already built it
-          sed -i 's/^make docker-build$/# make docker-build (skipped - already built)/' tests/e2e_periodic_docker.sh
           chmod +x tests/e2e_periodic_docker.sh
           ./tests/e2e_periodic_docker.sh
 

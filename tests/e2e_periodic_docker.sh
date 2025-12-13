@@ -1,9 +1,13 @@
 #!/bin/sh
 set -e
 
-# Build the docker image
-echo "Building Docker image..."
-make docker-build
+# Build the docker image (unless SKIP_DOCKER_BUILD is set)
+if [ -z "$SKIP_DOCKER_BUILD" ]; then
+  echo "Building Docker image..."
+  make docker-build
+else
+  echo "Skipping Docker build (SKIP_DOCKER_BUILD is set)..."
+fi
 
 # Run the sniffer in the background with periodic updates
 # We use --network host to be able to sniff on lo (loopback)

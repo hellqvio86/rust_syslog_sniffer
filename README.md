@@ -32,22 +32,11 @@ make run
 
 ### Docker Build
 
-#### Trixie Docker Build
-
 The project uses Debian Trixie-based Docker images for runtime compatibility and wider ecosystem support.
 
-```bash
-# Build Trixie image (local architecture)
-make docker-build-trixie
-
-# Run Trixie container
-make docker-run-trixie ARGS="--interface eth0 --port 514"
-
-# Multi-architecture build (pushes to registry)
-make docker-buildx-trixie REGISTRY=docker.io/yourusername
-```
-
-See [DOCKER_TRIXIE.md](DOCKER_TRIXIE.md) for complete Trixie build documentation.
+**Two Dockerfiles:**
+- `Dockerfile` - Builds from source (for local development and testing)
+- `Dockerfile.release` - Uses pre-built binaries (for published multi-arch images)
 
 #### Build Docker Image
 
@@ -79,14 +68,17 @@ docker run --rm --cap-add=NET_RAW --cap-add=NET_ADMIN \
 make docker-run-interactive
 ```
 
-#### Manual Docker Usage
+#### Published Docker Images
 
 The image is published on Docker Hub at: [docker.io/hellqvio/syslog_sniffer](https://hub.docker.com/r/hellqvio/syslog_sniffer)
 
-If you prefer not to use `make`, you can run the Docker container directly using the absolute address:
+Multi-architecture support:
+- `linux/amd64` - Standard 64-bit Intel/AMD systems
+- `linux/arm64` - Raspberry Pi 3, 4, 5, and other ARM64 devices
+- `linux/arm/v7` - 32-bit Raspberry Pi and other ARMv7 devices
 
 ```bash
-# Basic run
+# Pull and run the latest release
 docker run --rm --cap-add=NET_RAW --cap-add=NET_ADMIN --network host \
   docker.io/hellqvio/syslog_sniffer:latest --interface eth0
 
@@ -123,7 +115,8 @@ docker push docker.io/yourusername/syslog_sniffer:latest
 ### Docker Image Details
 
 - **Base Image:** Debian Trixie Slim (glibc compatibility, optimized size)
-- **Size:** ~30MB (final image)
+- **Build Image:** ~30MB (from source)
+- **Release Image:** ~15MB (pre-built binaries)
 
 ### Available Make Targets
 

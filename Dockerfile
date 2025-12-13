@@ -4,13 +4,13 @@ FROM rust:1.83-slim AS builder
 # Install build dependencies
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-       build-essential \
-       pkg-config \
-       libpcap-dev \
-       ca-certificates \
+    build-essential \
+    pkg-config \
+    libpcap-dev \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /usr/src/app
+WORKDIR /app
 
 # Copy manifests and source
 COPY Cargo.toml Cargo.lock ./
@@ -25,12 +25,12 @@ FROM debian:trixie-slim
 # Install runtime dependencies
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-       libpcap-dev \
-       ca-certificates \
+    libpcap-dev \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the binary from builder
-COPY --from=builder /usr/src/app/target/release/syslog_sniffer /usr/local/bin/syslog_sniffer
+COPY --from=builder /app/target/release/syslog_sniffer /usr/local/bin/syslog_sniffer
 
 RUN chmod +x /usr/local/bin/syslog_sniffer
 

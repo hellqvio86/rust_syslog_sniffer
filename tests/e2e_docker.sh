@@ -1,9 +1,13 @@
 #!/bin/bash
 set -e
 
-# Build the docker image
-echo "Building Docker image..."
-make docker-build
+# Build the docker image (unless SKIP_DOCKER_BUILD is set)
+if [ -z "$SKIP_DOCKER_BUILD" ]; then
+  echo "Building Docker image..."
+  make docker-build
+else
+  echo "Skipping Docker build (SKIP_DOCKER_BUILD is set)..."
+fi
 
 # Define variables
 INTERFACE="lo"

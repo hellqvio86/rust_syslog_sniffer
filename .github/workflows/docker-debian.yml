@@ -1,4 +1,4 @@
-name: Docker Trixie Build
+name: Docker Build
 
 on:
   push:
@@ -13,60 +13,58 @@ env:
   IMAGE_NAME: hellqvio/syslog_sniffer
 
 jobs:
-  build-trixie-simple:
-    name: Build Trixie (Single Arch)
+  build-and-test-docker:
+    name: Build and Test Docker Image
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Docker Hub
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch,suffix=-trixie
-            type=ref,event=pr,suffix=-trixie
-            type=semver,pattern={{version}},suffix=-trixie
-            type=semver,pattern={{major}}.{{minor}},suffix=-trixie
-            type=raw,value=trixie-latest,enable={{is_default_branch}}
-
-      - name: Build and push Trixie Docker image (amd64)
+      - name: Build amd64 image for testing
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          push: false
+          tags: syslog_sniffer:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          load: true
 
-      - name: Test Trixie image
+      - name: Install test dependencies
         run: |
-          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:trixie-latest --help || true
+          sudo apt-get update
+          sudo apt-get install -y netcat-openbsd make
 
-  build-trixie-multiarch:
-    name: Build Trixie (Multi-Arch)
+      - name: Run Docker E2E Test
+        env:
+          SKIP_DOCKER_BUILD: "1"
+        run: |
+          chmod +x tests/e2e_docker.sh
+          ./tests/e2e_docker.sh
+
+      - name: Run Docker Periodic E2E Test
+        env:
+          SKIP_DOCKER_BUILD: "1"
+        run: |
+          chmod +x tests/e2e_periodic_docker.sh
+          ./tests/e2e_periodic_docker.sh
+
+  publish-release-docker:
+    name: Publish Release Docker Image
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
+    needs: build-and-test-docker
     permissions:
       contents: read
       packages: write
@@ -93,17 +91,50 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=semver,pattern={{version}},suffix=-trixie-multiarch
-            type=semver,pattern={{major}}.{{minor}},suffix=-trixie-multiarch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
 
-      - name: Build and push multi-arch Trixie image
+      - name: Download release binaries from CI
+        uses: actions/download-artifact@v6
+        with:
+          pattern: syslog_sniffer_*
+          path: release_assets
+          merge-multiple: true
+
+      - name: Prepare binaries for Docker
+        run: |
+          ls -R release_assets
+          # Rename binaries to match TARGETARCH (amd64, arm64, arm)
+          AMD64_BIN=$(find release_assets -name "*_linux_amd64" -type f | head -n 1)
+          if [ -n "$AMD64_BIN" ]; then
+            cp "$AMD64_BIN" syslog_sniffer_amd64
+            chmod +x syslog_sniffer_amd64
+          fi
+          
+          ARM64_BIN=$(find release_assets -name "*_linux_arm64" -type f | head -n 1)
+          if [ -n "$ARM64_BIN" ]; then
+            cp "$ARM64_BIN" syslog_sniffer_arm64
+            chmod +x syslog_sniffer_arm64
+          fi
+          
+          ARM_BIN=$(find release_assets -name "*_linux_armhf" -type f | head -n 1)
+          if [ -n "$ARM_BIN" ]; then
+            cp "$ARM_BIN" syslog_sniffer_arm
+            chmod +x syslog_sniffer_arm
+          fi
+          
+          ls -l syslog_sniffer_*
+
+      - name: Build and push release Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./Dockerfile.trixie.multiarch
+          file: ./Dockerfile.release
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+
+

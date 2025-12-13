@@ -412,7 +412,7 @@ dependencies = [
 
 [[package]]
 name = "syslog_sniffer"
-version = "0.1.10"
+version = "0.1.12"
 dependencies = [
  "clap",
  "env_logger",

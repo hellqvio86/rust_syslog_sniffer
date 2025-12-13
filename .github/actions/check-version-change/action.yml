@@ -10,7 +10,6 @@ outputs:
   previous_version:
     description: 'The previous version number'
     value: ${{ steps.check.outputs.previous_version }}
-
 runs:
   using: 'composite'
   steps:
@@ -22,9 +21,8 @@ runs:
         CURRENT_VERSION=$(grep -m 1 '^version =' Cargo.toml | cut -d '"' -f 2)
         echo "Current version: $CURRENT_VERSION"
         
-        # Get previous version from previous commit
-        git fetch --depth=2 origin ${{ github.ref }}
-        PREVIOUS_VERSION=$(git show HEAD~1:Cargo.toml | grep -m 1 '^version =' | cut -d '"' -f 2 || echo "")
+        # Get previous version from previous commit (HEAD~1 should exist with fetch-depth: 2)
+        PREVIOUS_VERSION=$(git show HEAD~1:Cargo.toml 2>/dev/null | grep -m 1 '^version =' | cut -d '"' -f 2 || echo "")
         echo "Previous version: $PREVIOUS_VERSION"
         
         # Check if version changed

@@ -81,27 +81,47 @@ Multi-architecture support:
 
 ```bash
 # Pull and run the latest release
-docker run --rm --cap-add=NET_RAW --cap-add=NET_ADMIN --network host \
+docker run --rm --user root --cap-add=NET_RAW --cap-add=NET_ADMIN --network host \
   docker.io/hellqvio/syslog_sniffer:latest --interface eth0
 
 # With custom arguments
-docker run --rm --cap-add=NET_RAW --cap-add=NET_ADMIN --network host \
+docker run --rm --user root --cap-add=NET_RAW --cap-add=NET_ADMIN --network host \
   docker.io/hellqvio/syslog_sniffer:latest --interface eth0 --port 1514
 ```
 
-**Note:** The container requires `NET_RAW` and `NET_ADMIN` capabilities for packet capture. Using `--network host` allows the container to access the host's network interfaces.
+**Note:** The container requires `NET_RAW` and `NET_ADMIN` capabilities for packet capture. Using `--network host` allows the container to access the host's network interfaces. We also use `--user root` to ensure the process has permission to use these capabilities.
 
 ##### Troubleshooting
 Start bash in the container to debug:
 
 ```bash
-docker run -it --rm --entrypoint /bin/bash \
-  --cap-add=NET_RAW --cap-add=NET_ADMIN --network host \
-  docker.io/hellqvio/syslog_sniffer:latest
+# Debug with default capabilities
+make docker-run-interactive
+
+# Debug with privileged mode (if you get "Operation not permitted")
+make docker-run-interactive PRIVILEGED=1
 ```
 
 > [!NOTE]
-> Capturing on certain interfaces (like `any` or `lo`) might require the container to run in privileged mode or with additional capabilities depending on your system configuration. If you encounter `PcapError("socket: Operation not permitted")`, try running the docker command manually with `--privileged`.
+> **Why "Operation not permitted"?**
+> Even with `NET_RAW` and `NET_ADMIN` capabilities, host security modules (SELinux on Fedora/RHEL, AppArmor on Debian/Ubuntu) may block the container from opening raw sockets or accessing physical network interfaces.
+>
+> **Common Fix: Ensure you are running as root (`--user root`) inside the container.**
+>
+> If the error persists, you have two options:
+>
+> 1. **Run with privileged mode (Recommended)**:
+>    - Make: `make docker-run PRIVILEGED=1`
+>    - Manual: `docker run --user root --privileged ...`
+>
+> 2. **Disable specific security profiles (Advanced)**:
+>    **Fedora/RHEL (SELinux):**
+>    - Make: `make docker-run DOCKER_OPTS="--security-opt label=disable"`
+>    - Manual: `docker run --user root --security-opt label=disable ...`
+>
+>    **Debian/Ubuntu (AppArmor):**
+>    - Make: `make docker-run DOCKER_OPTS="--security-opt apparmor=unconfined"`
+>    - Manual: `docker run --user root --security-opt apparmor=unconfined ...`
 
 #### Push to Registry
 

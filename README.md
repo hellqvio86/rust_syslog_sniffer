@@ -3,6 +3,8 @@
 [![CI](https://github.com/hellqvio86/rust_syslog_sniffer/actions/workflows/ci.yml/badge.svg)](https://github.com/hellqvio86/rust_syslog_sniffer/actions/workflows/ci.yml)
 ![Coverage](coverage.svg)
 ![GitHub Release](https://img.shields.io/github/v/release/hellqvio86/rust_syslog_sniffer)
+![Docker Pulls](https://img.shields.io/docker/pulls/hellqvio/syslog_sniffer)
+![GitHub Downloads](https://img.shields.io/github/downloads/hellqvio86/rust_syslog_sniffer/total)
 ![amd64](https://img.shields.io/badge/arch-amd64-blue)
 ![arm64](https://img.shields.io/badge/arch-arm64-blue)
 ![armv7](https://img.shields.io/badge/arch-armv7-blue) 

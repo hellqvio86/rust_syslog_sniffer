@@ -1,3 +1,59 @@
 {
-    "makefile.configureOnOpen": true
+  // Rust Analyzer settings
+  "rust-analyzer.check.command": "clippy",
+  "rust-analyzer.checkOnSave": true,
+  "rust-analyzer.cargo.allFeatures": true,
+  "rust-analyzer.cargo.extraArgs": ["--release"],
+  "rust-analyzer.inlayHints.chainingHints.enable": true,
+  "rust-analyzer.inlayHints.parameterHints.enable": true,
+  "rust-analyzer.lens.enable": true,
+  "rust-analyzer.procMacro.enable": true,
+  
+  // Network/system programming hints
+  "rust-analyzer.hover.actions.references.enable": true,
+  "rust-analyzer.hover.documentation.enable": true,
+  
+  // Editor settings
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "rust-lang.rust-analyzer",
+  "editor.rulers": [100],
+  "editor.tabSize": 4,
+  "[rust]": {
+    "editor.defaultFormatter": "rust-lang.rust-analyzer",
+    "editor.formatOnSave": true
+  },
+  "[toml]": {
+    "editor.defaultFormatter": "tamasfe.even-better-toml",
+    "editor.formatOnSave": true
+  },
+  
+  // File associations
+  "files.associations": {
+    "*.rs": "rust",
+    "Dockerfile*": "dockerfile",
+    "clippy.toml": "toml"
+  },
+  
+  // Code lens
+  "rust-analyzer.lens.run.enable": true,
+  "rust-analyzer.lens.debug.enable": true,
+  "rust-analyzer.lens.implementations.enable": true,
+  
+  // Diagnostics
+  "rust-analyzer.diagnostics.enable": true,
+  "rust-analyzer.diagnostics.experimental.enable": false,
+  
+  // Project-specific: exclude large directories
+  "files.exclude": {
+    "**/target": true,
+    "**/.git": true
+  },
+  "search.exclude": {
+    "**/target": true,
+    "**/Cargo.lock": true
+  },
+  
+  // Terminal settings for Docker/Make usage
+  "terminal.integrated.scrollback": 5000,
+  "terminal.integrated.copyOnSelection": true
 }

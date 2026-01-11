@@ -1,0 +1,63 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug syslog_sniffer",
+      "cargo": {
+        "args": [
+          "build",
+          "--bin=syslog_sniffer",
+          "--package=syslog_sniffer"
+        ],
+        "filter": {
+          "name": "syslog_sniffer",
+          "kind": "bin"
+        }
+      },
+      "args": ["--interface", "lo", "--port", "514"],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "RUST_LOG": "debug"
+      }
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug unit tests",
+      "cargo": {
+        "args": [
+          "test",
+          "--no-run",
+          "--lib",
+          "--package=syslog_sniffer"
+        ],
+        "filter": {
+          "name": "syslog_sniffer",
+          "kind": "lib"
+        }
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "RUST_LOG": "trace"
+      }
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug integration tests",
+      "cargo": {
+        "args": [
+          "test",
+          "--no-run",
+          "--test=*",
+          "--package=syslog_sniffer"
+        ]
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

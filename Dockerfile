@@ -1,5 +1,5 @@
 # Build stage (Debian Trixie-based)
-FROM rust:1.83-slim AS builder
+FROM rust:stable-slim AS builder
 
 # Install build dependencies
 RUN apt-get update \

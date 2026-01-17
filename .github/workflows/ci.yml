@@ -223,7 +223,7 @@ jobs:
 
   create-release:
     name: Create Draft Release
-    needs: build-release-binaries
+    needs: [build-release-binaries, docker-build-and-test]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

@@ -154,6 +154,7 @@ make docker-clean       # Remove Docker images
 
 make clean              # Clean build artifacts
 make coverage           # Generate coverage report
+make sbom               # Generate CycloneDX SBOM
 ```
 
 ## Usage
@@ -183,6 +184,15 @@ make check
 make coverage
 # Detailed HTML report will be available at tarpaulin-report.html
 ```
+
+### Supply Chain Security (SBOM)
+
+This project integrates SBOM (Software Bill of Materials) generation and embedding to ensure supply chain security:
+- **Embedded SBOM**: Production binaries are built using `cargo-auditable`, which embeds the dependency list directly into the executable.
+- **CycloneDX SBOM**: Standardized SBOM files in JSON format are generated during the CI process and available as release artifacts.
+- **Local Generation**: Use `make sbom` to generate a local CycloneDX SBOM.
+
+To inspect the embedded SBOM in a binary, you can use `cargo auditable extract <path-to-binary>`.
 
 ## CI/CD
 

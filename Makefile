@@ -2,6 +2,7 @@
 
 # Variables
 CARGO = cargo
+CARGO_AUDITABLE = $(CARGO) auditable
 DOCKER = docker
 IMAGE_NAME = syslog_sniffer
 IMAGE_TAG = latest
@@ -14,7 +15,18 @@ help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 build: ## Build the Rust project
-	$(CARGO) build --release
+	@if command -v cargo-auditable >/dev/null 2>&1; then \
+		$(CARGO_AUDITABLE) build --release; \
+	else \
+		$(CARGO) build --release; \
+	fi
+
+sbom: ## Generate SBOM in CycloneDX format
+	@if ! command -v cargo-cyclonedx >/dev/null 2>&1; then \
+		echo "Installing cargo-cyclonedx..."; \
+		$(CARGO) install cargo-cyclonedx; \
+	fi
+	$(CARGO) cyclonedx --format json --override-filename "sbom"
 
 run: ## Run the application
 	$(CARGO) run
@@ -82,5 +94,5 @@ ifdef REGISTRY
 	$(DOCKER) rmi $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG) || true
 endif
 
-all: clean build test docker-build ## Clean, build, test, and create Docker image
+all: clean build test sbom docker-build ## Clean, build, test, and create Docker image
 

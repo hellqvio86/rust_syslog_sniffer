@@ -180,6 +180,11 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Install SBOM tools
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-auditable,cargo-cyclonedx
+
       - name: Extract Cargo version
         id: meta
         run: |
@@ -197,7 +202,11 @@ jobs:
              export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc
              export PKG_CONFIG_PATH_armv7_unknown_linux_gnueabihf=/usr/lib/arm-linux-gnueabihf/pkgconfig
           fi
-          cargo build --release --target ${{ matrix.target }}
+          cargo auditable build --release --target ${{ matrix.target }}
+
+      - name: Generate SBOM
+        run: |
+          cargo cyclonedx --format json --target ${{ matrix.target }} --override-filename "sbom-${{ matrix.arch }}"
 
       - name: Rename binary with version
         run: |
@@ -208,7 +217,9 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: syslog_sniffer_${{ steps.meta.outputs.version }}_linux_${{ matrix.arch }}
-          path: target/${{ matrix.target }}/release/syslog_sniffer_${{ steps.meta.outputs.version }}_linux_${{ matrix.arch }}
+          path: |
+            target/${{ matrix.target }}/release/syslog_sniffer_${{ steps.meta.outputs.version }}_linux_${{ matrix.arch }}
+            sbom-${{ matrix.arch }}.json
 
   create-release:
     name: Create Draft Release

@@ -17,7 +17,8 @@ COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 
 # Build the application in release mode
-RUN cargo build --release
+RUN cargo install cargo-auditable
+RUN cargo auditable build --release
 
 # Runtime stage (Debian Trixie slim)
 FROM debian:trixie-slim

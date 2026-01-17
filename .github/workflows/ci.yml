@@ -208,18 +208,18 @@ jobs:
         run: |
           cargo cyclonedx --format json --target ${{ matrix.target }} --override-filename "sbom-${{ matrix.arch }}"
 
-      - name: Rename binary with version
+      - name: Prepare artifacts
         run: |
-          cp target/${{ matrix.target }}/release/syslog_sniffer target/${{ matrix.target }}/release/syslog_sniffer_${{ steps.meta.outputs.version }}_linux_${{ matrix.arch }}
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/syslog_sniffer dist/syslog_sniffer_${{ steps.meta.outputs.version }}_linux_${{ matrix.arch }}
+          cp sbom-${{ matrix.arch }}.json dist/
 
       - name: Upload Binary Artifact
         if: github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v6
         with:
           name: syslog_sniffer_${{ steps.meta.outputs.version }}_linux_${{ matrix.arch }}
-          path: |
-            target/${{ matrix.target }}/release/syslog_sniffer_${{ steps.meta.outputs.version }}_linux_${{ matrix.arch }}
-            sbom-${{ matrix.arch }}.json
+          path: dist/*
 
   create-release:
     name: Create Draft Release
@@ -243,7 +243,7 @@ jobs:
         if: steps.version.outputs.changed == 'true'
         uses: actions/download-artifact@v7
         with:
-          pattern: syslog_sniffer_*
+          pattern: "*"
           path: release_assets
           merge-multiple: true
 

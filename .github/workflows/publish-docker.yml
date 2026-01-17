@@ -47,7 +47,7 @@ jobs:
         run: |
           gh release download "${{ github.event.release.tag_name }}" \
             --repo "${{ github.repository }}" \
-            --pattern "syslog_sniffer_*" \
+            --pattern "*" \
             --dir release_assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

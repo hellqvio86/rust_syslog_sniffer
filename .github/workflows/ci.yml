@@ -243,7 +243,7 @@ jobs:
         if: steps.version.outputs.changed == 'true'
         uses: actions/download-artifact@v7
         with:
-          pattern: "*"
+          pattern: "syslog_sniffer_*"
           path: release_assets
           merge-multiple: true
 
@@ -273,3 +273,90 @@ jobs:
           files: release_assets/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-docker:
+    name: Publish Multi-Arch Docker Images
+    needs: create-release
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+
+      - name: Check if version changed
+        id: version
+        uses: ./.github/actions/check-version-change
+
+      - name: Set up QEMU
+        if: steps.version.outputs.changed == 'true'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        if: steps.version.outputs.changed == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: steps.version.outputs.changed == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        if: steps.version.outputs.changed == 'true'
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: docker.io/hellqvio/syslog_sniffer
+          tags: |
+            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=latest
+
+      - name: Download release binaries
+        if: steps.version.outputs.changed == 'true'
+        uses: actions/download-artifact@v7
+        with:
+          pattern: "syslog_sniffer_*"
+          path: release_assets
+          merge-multiple: true
+
+      - name: Prepare binaries for Docker
+        if: steps.version.outputs.changed == 'true'
+        run: |
+          set -e
+          ls -l release_assets
+
+          AMD64_BIN=$(find release_assets -name "*_linux_amd64" -type f | head -n 1)
+          ARM64_BIN=$(find release_assets -name "*_linux_arm64" -type f | head -n 1)
+          ARMHF_BIN=$(find release_assets -name "*_linux_armhf" -type f | head -n 1)
+
+          [ -n "$AMD64_BIN" ] || (echo "Missing amd64 binary" && exit 1)
+          [ -n "$ARM64_BIN" ] || (echo "Missing arm64 binary" && exit 1)
+          [ -n "$ARMHF_BIN" ] || (echo "Missing armhf binary" && exit 1)
+
+          cp "$AMD64_BIN" syslog_sniffer_amd64
+          cp "$ARM64_BIN" syslog_sniffer_arm64
+          cp "$ARMHF_BIN" syslog_sniffer_arm
+
+          chmod +x syslog_sniffer_*
+
+          ls -l syslog_sniffer_*
+
+      - name: Build and push multi-arch Docker image
+        if: steps.version.outputs.changed == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.release
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha

@@ -11,25 +11,23 @@ updates:
       day: "sunday"
       time: "06:00"
       timezone: "Europe/Stockholm"
-
     # Group dependency updates to reduce noise
     groups:
       rust-dependencies:
         patterns:
           - "*"
-
     # Ignore patch-level Rust toolchain noise
     ignore:
       - dependency-name: "rustc"
       - dependency-name: "cargo"
-
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
       - "rust"
-
     commit-message:
       prefix: "deps(rust)"
+    assignees:
+      - "hellqvio86"
 
   # ---------------------------------------
   # GitHub Actions dependencies
@@ -40,16 +38,15 @@ updates:
       interval: "monthly"
       time: "06:00"
       timezone: "Europe/Stockholm"
-
     groups:
       github-actions:
         patterns:
           - "*"
-
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
       - "ci"
-
     commit-message:
       prefix: "deps(ci)"
+    assignees:
+      - "hellqvio86"

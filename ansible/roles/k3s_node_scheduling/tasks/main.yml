@@ -1,0 +1,74 @@
+---
+- name: Get control-plane nodes (new label)
+  ansible.builtin.command:
+    cmd: kubectl get nodes -l node-role.kubernetes.io/control-plane -o jsonpath={.items[*].metadata.name}
+  register: cp_nodes_new_label
+  changed_when: false
+
+- name: Get control-plane nodes (legacy label)
+  ansible.builtin.command:
+    cmd: kubectl get nodes -l node-role.kubernetes.io/master -o jsonpath={.items[*].metadata.name}
+  register: cp_nodes_legacy_label
+  changed_when: false
+
+- name: Get all node names
+  ansible.builtin.command:
+    cmd: kubectl get nodes -o jsonpath={.items[*].metadata.name}
+  register: all_nodes_cmd
+  changed_when: false
+
+- name: Build node lists
+  ansible.builtin.set_fact:
+    control_plane_nodes: >-
+      {{
+        ((cp_nodes_new_label.stdout | trim).split() + (cp_nodes_legacy_label.stdout | trim).split())
+        | unique
+      }}
+    all_nodes: "{{ (all_nodes_cmd.stdout | trim).split() }}"
+
+- name: Derive worker nodes from all nodes minus control-plane nodes
+  ansible.builtin.set_fact:
+    worker_nodes: "{{ all_nodes | difference(control_plane_nodes) }}"
+
+- name: Fail if no control-plane nodes were discovered
+  ansible.builtin.fail:
+    msg: >-
+      No control-plane nodes detected via labels
+      node-role.kubernetes.io/control-plane or node-role.kubernetes.io/master.
+      Label your control-plane nodes first.
+  when: control_plane_nodes | length == 0
+
+- name: Cordon control-plane nodes
+  ansible.builtin.command:
+    cmd: kubectl cordon {{ item }}
+  loop: "{{ control_plane_nodes }}"
+  register: cordon_result
+  changed_when: "'already cordoned' not in stdout"
+
+- name: Taint control-plane nodes with control-plane NoSchedule
+  ansible.builtin.command:
+    cmd: kubectl taint nodes {{ item }} node-role.kubernetes.io/control-plane=:NoSchedule --overwrite
+  loop: "{{ control_plane_nodes }}"
+  register: taint_control_plane_result
+  changed_when: "'already has' not in stdout"
+
+- name: Taint control-plane nodes with master NoSchedule (legacy compatibility)
+  ansible.builtin.command:
+    cmd: kubectl taint nodes {{ item }} node-role.kubernetes.io/master=:NoSchedule --overwrite
+  loop: "{{ control_plane_nodes }}"
+  register: taint_master_result
+  changed_when: "'already has' not in stdout"
+
+- name: Label worker nodes for app scheduling
+  ansible.builtin.command:
+    cmd: kubectl label node {{ item }} workload=apps --overwrite
+  loop: "{{ worker_nodes }}"
+  register: label_worker_result
+  changed_when: "'not labeled' not in stdout"
+  when: worker_nodes | length > 0
+
+- name: Show applied node lists
+  ansible.builtin.debug:
+    msg:
+      control_plane_nodes: "{{ control_plane_nodes }}"
+      worker_nodes: "{{ worker_nodes }}"

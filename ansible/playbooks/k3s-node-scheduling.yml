@@ -1,0 +1,6 @@
+---
+- name: Apply k3s node scheduling hardening
+  hosts: localhost
+  gather_facts: false
+  roles:
+    - role: k3s_node_scheduling

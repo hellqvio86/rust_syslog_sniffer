@@ -4,3 +4,4 @@ sniffer_output.txt
 sniffer_output_docker.txt
 cobertura.xml
 tarpaulin-report.html
+.codex

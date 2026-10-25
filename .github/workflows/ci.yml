@@ -170,6 +170,8 @@ jobs:
           # 2. Add ports source for target architecture
           echo "deb [arch=${{ matrix.arch }}] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs) main universe multiverse restricted" | sudo tee /etc/apt/sources.list.d/ports.list
           echo "deb [arch=${{ matrix.arch }}] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs)-updates main universe multiverse restricted" | sudo tee -a /etc/apt/sources.list.d/ports.list
+          echo "deb [arch=${{ matrix.arch }}] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs)-security main universe multiverse restricted" | sudo tee -a /etc/apt/sources.list.d/ports.list
+          echo "deb [arch=${{ matrix.arch }}] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs)-backports main universe multiverse restricted" | sudo tee -a /etc/apt/sources.list.d/ports.list
           
           sudo dpkg --add-architecture ${{ matrix.arch }}
           sudo apt-get update

@@ -79,8 +79,20 @@ Multi-architecture support:
 - `linux/arm64` - Raspberry Pi 3, 4, 5, and other ARM64 devices
 - `linux/arm/v7` - 32-bit Raspberry Pi and other ARMv7 devices
 
+##### Pull Image
+
 ```bash
-# Pull and run the latest release
+# Pull the latest release
+docker pull docker.io/hellqvio/syslog_sniffer:latest
+
+# Or pull a specific version tag
+docker pull docker.io/hellqvio/syslog_sniffer:0.6.2
+```
+
+##### Run Published Container
+
+```bash
+# Run the latest release
 docker run --rm --user root --cap-add=NET_RAW --cap-add=NET_ADMIN --network host \
   docker.io/hellqvio/syslog_sniffer:latest --interface eth0
 

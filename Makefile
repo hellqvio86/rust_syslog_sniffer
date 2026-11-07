@@ -1,4 +1,4 @@
-.PHONY: build run clean test docker-build docker-run docker-push help
+.PHONY: build run clean test docker-build docker-run docker-push help renovate renovate-summary
 
 # Variables
 CARGO = cargo
@@ -95,4 +95,10 @@ ifdef REGISTRY
 endif
 
 all: clean build test sbom docker-build ## Clean, build, test, and create Docker image
+
+renovate: ## Run Renovate locally in dry-run mode
+	@./bin/renovate/run.sh
+
+renovate-summary: ## Run Renovate locally and show summary of branches/updates
+	@./bin/renovate/run.sh --summary
 

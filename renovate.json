@@ -11,9 +11,7 @@
   "prHourlyLimit": 0,
   "prConcurrentLimit": 0,
   "timezone": "Europe/Stockholm",
-  "schedule": [
-    "before 6:00am on monday"
-  ],
+  "rebaseWhen": "behind-base-branch",
   "packageRules": [
     {
       "matchManagers": ["cargo"],

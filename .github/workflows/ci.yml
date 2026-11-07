@@ -175,7 +175,7 @@ jobs:
           
           sudo dpkg --add-architecture ${{ matrix.arch }}
           sudo apt-get update
-          sudo apt-get install -y libpcap-dev:${{ matrix.arch }} ${{ matrix.gcc }}
+          sudo apt-get install -y --allow-downgrades libpcap-dev:${{ matrix.arch }} ${{ matrix.gcc }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

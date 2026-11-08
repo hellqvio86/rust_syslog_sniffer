@@ -3,62 +3,39 @@
 ## Workflow Files
 
 ### 1. `.github/workflows/ci.yml` - Main CI/CD Pipeline
-**Triggers:** Push to main, Pull Requests
+**Triggers:** Push to `main`, Pull Requests, and Release published
 
 **Jobs:**
 1. **build-and-test** - Core Rust validation
-   - Format checking
-   - Clippy linting
-   - Unit tests
+   - Code formatting (`cargo fmt -- --check`)
+   - Linting (`cargo clippy --all-targets -- -D warnings`)
+   - Unit tests (`cargo test`)
 
 2. **docker-build-and-test** - Docker validation
-   - Build Docker image (amd64)
-   - Run E2E tests in Docker
+   - Build Docker image
+   - Run E2E tests in Docker (`tests/e2e_docker.sh`)
+   - Run Periodic Docker E2E test (`tests/e2e_periodic_docker.sh`)
 
 3. **coverage** - Code coverage
-   - Generate coverage reports
-   - Update coverage badge
+   - Generates coverage metrics
 
-4. **build-release-binaries** - Multi-arch binaries
-   - Build for amd64, arm64, armhf
-   - Upload as artifacts
+4. **build-release-binaries** - Multi-arch release binaries
+   - Builds release binaries for amd64, arm64, and armhf
 
-5. **create-release** - Automated release creation
-   - Uses custom action to detect version changes
-   - Creates draft release with binaries
-   - Only runs if version in Cargo.toml changed
+5. **create-release** - Automated draft release creation
+   - Detects version updates
+   - Generates release notes and uploads release binaries
 
-### 2. `.github/workflows/publish-docker.yml` - Docker Publishing
-**Triggers:** Release published (manual action)
+6. **publish-docker** - Multi-arch container publish
+   - Builds and publishes multi-architecture images to Docker Hub
+
+### 2. `.github/workflows/security.yml` - Security Scanning
+**Triggers:** Push to `main`, Pull Requests, and Scheduled daily
 
 **Jobs:**
-1. **publish-docker** - Publish to Docker Hub
-   - Downloads release binaries
-   - Builds multi-arch Docker images
-   - Pushes to docker.io/hellqvio/syslog_sniffer
+- **trufflehog** - Secrets scanning
+- **trivy** - Vulnerability scanning for repository dependencies
 
-## Release Process
-
-```
-1. Bump version in Cargo.toml
-         ↓
-2. Push to main
-         ↓
-3. CI runs:
-   - Tests pass
-   - Binaries built
-   - Draft release created automatically
-         ↓
-4. Review draft release on GitHub
-         ↓
-5. Manually publish release
-         ↓
-6. Docker images built and published
-```
-
-## Custom Actions
-
-### `.github/actions/check-version-change`
-Reusable action that detects version changes in Cargo.toml
-- Returns: changed (bool), version, previous_version
-- Used by: ci.yml (create-release job)
+### 3. `.github/workflows/nightly.yml` - Nightly Pipeline
+**Triggers:** Daily schedule (03:00 UTC) and manual workflow dispatch
+- Extended builds, audits, and dependency hygiene checks

@@ -1,46 +1,15 @@
+# Managed by Renovate for scheduled dependency updates.
+# Dependabot open-pull-requests-limit is set to 0 to keep GitHub security alerts active
+# without duplicate scheduled version upgrade PRs.
 version: 2
 updates:
 - package-ecosystem: cargo
   directory: /
   schedule:
     interval: weekly
-    day: sunday
-    time: 06:00
-    timezone: Europe/Stockholm
-  groups:
-    rust-dependencies:
-      patterns:
-      - '*'
-  ignore:
-  - dependency-name: rustc
-  - dependency-name: cargo
-  open-pull-requests-limit: 5
-  labels:
-  - dependencies
-  - rust
-  commit-message:
-    prefix: deps(rust)
-  assignees:
-  - hellqvio86
-  cooldown:
-    default-days: 3
+  open-pull-requests-limit: 0
 - package-ecosystem: github-actions
   directory: /
   schedule:
     interval: monthly
-    time: 06:00
-    timezone: Europe/Stockholm
-  groups:
-    github-actions:
-      patterns:
-      - '*'
-  open-pull-requests-limit: 5
-  labels:
-  - dependencies
-  - ci
-  commit-message:
-    prefix: deps(ci)
-  assignees:
-  - hellqvio86
-  cooldown:
-    default-days: 3
+  open-pull-requests-limit: 0

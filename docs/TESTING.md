@@ -23,7 +23,7 @@ cargo tarpaulin --out Html
 #### Docker E2E Test
 Tests the complete Docker workflow with syslog message capture.
 
-**Location:** [`tests/e2e_docker.sh`](file:///home/hellqvio/git/rust_syslog_sniffer/tests/e2e_docker.sh)
+**Location:** [`tests/e2e_docker.sh`](../tests/e2e_docker.sh)
 
 **What it tests:**
 - Docker image builds successfully
@@ -42,7 +42,7 @@ Tests the complete Docker workflow with syslog message capture.
 #### Periodic Docker E2E Test
 Tests the periodic reporting feature in Docker.
 
-**Location:** [`tests/e2e_periodic_docker.sh`](file:///home/hellqvio/git/rust_syslog_sniffer/tests/e2e_periodic_docker.sh)
+**Location:** [`tests/e2e_periodic_docker.sh`](../tests/e2e_periodic_docker.sh)
 
 **What it tests:**
 - Periodic updates work correctly
@@ -63,7 +63,7 @@ Tests the periodic reporting feature in Docker.
 #### Standard E2E Test
 Tests the binary directly (non-Docker).
 
-**Location:** [`tests/e2e.sh`](file:///home/hellqvio/git/rust_syslog_sniffer/tests/e2e.sh)
+**Location:** [`tests/e2e.sh`](../tests/e2e.sh)
 
 **What it tests:**
 - Binary builds and runs
@@ -80,7 +80,7 @@ Tests the binary directly (non-Docker).
 ### GitHub Actions Workflow
 All tests run automatically in CI on every push and pull request.
 
-**Workflow:** [`.github/workflows/ci.yml`](file:///home/hellqvio/git/rust_syslog_sniffer/.github/workflows/ci.yml)
+**Workflow:** [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
 
 **Test stages:**
 1. **build-and-test** job:

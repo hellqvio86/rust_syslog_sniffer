@@ -1,13 +1,9 @@
 FROM debian:trixie-slim
 
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
-    libpcap-dev \
+# Install runtime dependencies (runtime libpcap0.8t64 instead of -dev)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpcap0.8t64 \
     && rm -rf /var/lib/apt/lists/*
-
-# Create a non-root user
-#RUN groupadd -g 1000 sniffer && \
-#    useradd -u 1000 -g sniffer -m sniffer
 
 # Automatic argument provided by Docker Buildx
 ARG TARGETARCH

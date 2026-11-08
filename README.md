@@ -7,9 +7,9 @@
 ![GitHub Downloads](https://img.shields.io/github/downloads/hellqvio86/rust_syslog_sniffer/total)
 ![amd64](https://img.shields.io/badge/arch-amd64-blue)
 ![arm64](https://img.shields.io/badge/arch-arm64-blue)
-![armv7](https://img.shields.io/badge/arch-armv7-blue) 
+![armv7](https://img.shields.io/badge/arch-armv7-blue)
 
-A syslog packet sniffer written in Rust.
+Fast, lightweight network packet sniffer for UDP syslog traffic (RFC 3164 and RFC 5424) with JSON summary reports.
 
 ## Building and Running
 
@@ -22,8 +22,8 @@ make build
 # Run tests
 make test
 
-# Run the application
-make run
+# Run the application (requires CAP_NET_RAW or root)
+make run ARGS="--interface lo --port 514"
 ```
 
 ### Supported Architectures
@@ -34,7 +34,7 @@ make run
 
 ### Docker Build
 
-The project uses Debian Trixie-based Docker images for runtime compatibility and wider ecosystem support.
+The project uses Debian Trixie-based Docker images for runtime compatibility and security.
 
 **Two Dockerfiles:**
 - `Dockerfile` - Builds from source (for local development and testing)
@@ -55,29 +55,24 @@ docker build -t syslog_sniffer:latest .
 #### Run Docker Container
 
 ```bash
-# Run with default options
+# Print help
 make docker-run
 
 # Run with custom arguments
 make docker-run ARGS="--interface eth0 --port 514"
 
-# Run with custom interface (manual docker command)
-docker run --rm --cap-add=NET_RAW --cap-add=NET_ADMIN \
+# Run with least privilege (CAP_NET_RAW only, non-root capabilities dropped)
+docker run --rm \
+  --cap-drop=ALL \
+  --cap-add=NET_RAW \
+  --security-opt no-new-privileges \
   --network host \
   syslog_sniffer:latest --interface eth0
-
-# Run interactively
-make docker-run-interactive
 ```
 
 #### Published Docker Images
 
 The image is published on Docker Hub at: [docker.io/hellqvio/syslog_sniffer](https://hub.docker.com/r/hellqvio/syslog_sniffer)
-
-Multi-architecture support:
-- `linux/amd64` - Standard 64-bit Intel/AMD systems
-- `linux/arm64` - Raspberry Pi 3, 4, 5, and other ARM64 devices
-- `linux/arm/v7` - 32-bit Raspberry Pi and other ARMv7 devices
 
 ##### Pull Image
 
@@ -86,142 +81,116 @@ Multi-architecture support:
 docker pull docker.io/hellqvio/syslog_sniffer:latest
 
 # Or pull a specific version tag
-docker pull docker.io/hellqvio/syslog_sniffer:0.6.2
+docker pull docker.io/hellqvio/syslog_sniffer:<version>
 ```
 
 ##### Run Published Container
 
 ```bash
-# Run the latest release
-docker run --rm --user root --cap-add=NET_RAW --cap-add=NET_ADMIN --network host \
-  docker.io/hellqvio/syslog_sniffer:latest --interface eth0
-
-# With custom arguments
-docker run --rm --user root --cap-add=NET_RAW --cap-add=NET_ADMIN --network host \
-  docker.io/hellqvio/syslog_sniffer:latest --interface eth0 --port 1514
-```
-
-**Note:** The container requires `NET_RAW` and `NET_ADMIN` capabilities for packet capture. Using `--network host` allows the container to access the host's network interfaces. We also use `--user root` to ensure the process has permission to use these capabilities.
-
-##### Troubleshooting
-Start bash in the container to debug:
-
-```bash
-# Debug with default capabilities
-make docker-run-interactive
-
-# Debug with privileged mode (if you get "Operation not permitted")
-make docker-run-interactive PRIVILEGED=1
+# Run with least privilege (CAP_NET_RAW only)
+docker run --rm --cap-drop=ALL --cap-add=NET_RAW --network host \
+  docker.io/hellqvio/syslog_sniffer:latest --interface eth0 --port 514
 ```
 
 > [!NOTE]
-> **Why "Operation not permitted"?**
-> Even with `NET_RAW` and `NET_ADMIN` capabilities, host security modules (SELinux on Fedora/RHEL, AppArmor on Debian/Ubuntu) may block the container from opening raw sockets or accessing physical network interfaces.
->
-> **Common Fix: Ensure you are running as root (`--user root`) inside the container.**
->
-> If the error persists, you have two options:
->
-> 1. **Run with privileged mode (Recommended)**:
->    - Make: `make docker-run PRIVILEGED=1`
->    - Manual: `docker run --user root --privileged ...`
->
-> 2. **Disable specific security profiles (Advanced)**:
->    **Fedora/RHEL (SELinux):**
->    - Make: `make docker-run DOCKER_OPTS="--security-opt label=disable"`
->    - Manual: `docker run --user root --security-opt label=disable ...`
->
->    **Debian/Ubuntu (AppArmor):**
->    - Make: `make docker-run DOCKER_OPTS="--security-opt apparmor=unconfined"`
->    - Manual: `docker run --user root --security-opt apparmor=unconfined ...`
-
-#### Push to Registry
-
-```bash
-# Tag and push to your registry
-make docker-push REGISTRY=docker.io/yourusername
-
-# Or manually
-docker tag syslog_sniffer:latest docker.io/yourusername/syslog_sniffer:latest
-docker push docker.io/yourusername/syslog_sniffer:latest
-```
-
-### Docker Image Details
-
-- **Base Image:** Debian Trixie Slim (glibc compatibility, optimized size)
-- **Build Image:** ~30MB (from source)
-- **Release Image:** ~15MB (pre-built binaries)
-
-### Available Make Targets
-
-Run `make help` to see all available targets:
-
-```
-make build              # Build the Rust project
-make test               # Run tests
-make docker-build       # Build Docker image
-make docker-run         # Run Docker container
-make docker-push        # Push to registry (requires REGISTRY variable)
-make docker-clean       # Remove Docker images
-
-make clean              # Clean build artifacts
-make coverage           # Generate coverage report
-make sbom               # Generate CycloneDX SBOM
-```
+> The container requires only `CAP_NET_RAW` capability for packet capture. Using `--network host` allows the container to access the host's network interfaces. Promiscuous mode (`--promisc`) additionally requires `CAP_NET_ADMIN`.
 
 ## Usage
 
-```bash
+Summary JSON reports are written to **stdout**, while operational and debug logs are written to **stderr**.
+
+```text
 syslog_sniffer [OPTIONS]
 
 Options:
-  --interface <INTERFACE>  Network interface to sniff (e.g., eth0)
-  --port <PORT>           Syslog port to monitor (default: 514)
-  --help                  Print help information
+  -i, --interface <INTERFACE>   Network interface to sniff on (e.g. eth0, lo) [required unless --read-pcap]
+  -p, --port <PORT>             UDP port to sniff (1-65535, default: 514)
+  -d, --debug                   Enable debug logging to stderr
+      --duration <SECS>         Total runtime in seconds (alias: --interval; default: 10s in one-shot mode; 0 or omitted in periodic mode runs indefinitely)
+      --periodic                Enable periodic windowed summary output
+      --frequency <SECS>        Periodic output interval in seconds (requires --periodic, default: 5)
+      --max-hosts <N>           Maximum distinct host entries to track in memory (default: 10000)
+      --sample-bytes <N>        Maximum sample message bytes to store per host (default: 256; 0 to disable)
+      --no-sample               Disable message samples in output (equivalent to --sample-bytes 0)
+      --format <pretty|ndjson>  JSON output format: pretty or ndjson (default: pretty)
+      --emit-empty              Emit heartbeat summary windows even if no packets were captured
+      --key-by <hostname|source-ip>
+                                Key statistics by claimed hostname or sender source IP (default: hostname)
+      --promisc                 Put interface into promiscuous mode (requires CAP_NET_ADMIN)
+      --buffer-size <BYTES>     Libpcap kernel buffer size (default: 2097152)
+      --snaplen <BYTES>         Packet snaplen (default: 65535)
+      --read-pcap <PATH>        Replay packets offline from a .pcap file
+  -h, --help                    Print help
+  -V, --version                 Print version
 ```
+
+### Sample Output
+
+```json
+{
+  "schema_version": 1,
+  "interval_seconds": 10,
+  "window_duration_seconds": 10.001,
+  "window_start": "2026-11-08T04:14:51.669Z",
+  "window_end": "2026-11-08T04:15:01.670Z",
+  "packets_seen": 42,
+  "datagrams_decoded": 42,
+  "hosts": {
+    "router.example.com": {
+      "count": 35,
+      "sample": "<134>1 2026-11-08T04:14:52Z router.example.com filterlog - - [fw rule=1] pass in on igb0",
+      "sources": [
+        "192.168.1.1"
+      ]
+    },
+    "switch.example.com": {
+      "count": 7,
+      "sample": "<189>Nov 08 04:14:53 switch STP: Port 1 entering forwarding state",
+      "sources": [
+        "192.168.1.2"
+      ]
+    }
+  },
+  "capture_stats": {
+    "received": 42,
+    "dropped": 0,
+    "if_dropped": 0
+  }
+}
+```
+
+## Limitations
+
+- **UDP Only**: Listens to UDP syslog traffic (RFC 3164 and RFC 5424). TCP/TLS syslog (RFC 5425 / RFC 6587) and RELP are not captured.
+- **IP Fragmentation**: Only initial UDP packet fragments carrying the UDP header are parsed; subsequent non-initial fragments do not carry UDP port headers and are ignored.
+- **Self-Reported Hostnames**: Hostnames parsed from syslog payloads are self-reported by clients and can be spoofed. The `sources` field records the actual observed IP address(es) sending traffic for each hostname. Alternatively, use `--key-by source-ip` to index directly by verified IP.
+- **Privileges**: Packet capture requires the `CAP_NET_RAW` Linux capability (or running as root).
+- **Log Confidentiality**: Message samples can contain sensitive data (usernames, internal IPs). Use `--no-sample` or `--sample-bytes 0` when shipping reports to shared sinks.
 
 ## Development
 
 ```bash
-# Format code
-make format
+# Check formatting
+make fmt-check
 
 # Run linter
-make clippy
+make lint
 
-# Check code
-make check
+# Run tests
+make test
 
-# Generate coverage
-make coverage
-# Detailed HTML report will be available at tarpaulin-report.html
+# Security scans
+make secrets
+make trivy
 ```
 
 ### Supply Chain Security (SBOM)
 
-This project integrates SBOM (Software Bill of Materials) generation and embedding to ensure supply chain security:
-- **Embedded SBOM**: Production binaries are built using `cargo-auditable`, which embeds the dependency list directly into the executable.
-- **CycloneDX SBOM**: Standardized SBOM files in JSON format are generated during the CI process and available as release artifacts.
+This project integrates SBOM (Software Bill of Materials) generation and embedding:
+- **Embedded SBOM**: Production binaries are built using `cargo-auditable`, embedding dependency metadata into the executable.
+- **CycloneDX SBOM**: Standardized SBOM files in JSON format are generated during CI and published with releases.
 - **Local Generation**: Use `make sbom` to generate a local CycloneDX SBOM.
-
-To inspect the embedded SBOM in a binary, you can use `cargo auditable extract <path-to-binary>`.
-
-## CI/CD
-
-This project uses GitHub Actions for continuous integration. The workflow runs on every push and pull request to `main` or `master` branches.
-
-It performs the following checks:
-- **Formatting:** Checks code formatting with `cargo fmt`.
-- **Linting:** Runs `cargo clippy` to catch common mistakes.
-- **Tests:** Runs unit tests with `cargo test`.
-- **E2E Tests:** Runs the Docker-based end-to-end test script `tests/e2e_docker.sh`.
 
 ## License
 
 [MIT](LICENSE.md)
-
-<p align="right">
-  <a href="https://www.buymeacoffee.com/olofhellqvc">
-    <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" height="48">
-  </a>
-</p>

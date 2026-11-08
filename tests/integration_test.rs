@@ -15,11 +15,18 @@ fn test_full_flow_simulation() {
     let packet = parse_syslog_packet(raw_packet).expect("Should parse");
 
     // 3. Track stats
-    let mut stats = StatsTracker::new();
-    stats.add_entry(packet.hostname.unwrap(), packet.message);
+    let mut stats = StatsTracker::default();
+    stats.add_entry(
+        packet.hostname.as_deref(),
+        "127.0.0.1".parse().unwrap(),
+        &packet.message,
+        packet.is_non_utf8,
+    );
 
     // 4. Verify summary
-    let summary = stats.get_summary(10);
+    let now = std::time::SystemTime::now();
+    let summary = stats.get_summary(10, 10.0, now, now);
+    assert_eq!(summary.schema_version, 1);
     assert_eq!(summary.hosts.len(), 1);
     assert!(summary.hosts.contains_key("mymachine"));
     assert_eq!(summary.hosts["mymachine"].count, 1);

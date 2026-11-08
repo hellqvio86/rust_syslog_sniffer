@@ -1,7 +1,9 @@
 /target
-.cargo/
-sniffer_output.txt
-sniffer_output_docker.txt
+sniffer_output*.txt
 cobertura.xml
 tarpaulin-report.html
 .codex
+.env
+sbom*.json
+*.cdx.json
+/coverage

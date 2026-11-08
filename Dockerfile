@@ -7,7 +7,6 @@ RUN apt-get update \
     build-essential \
     pkg-config \
     libpcap-dev \
-    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -17,8 +16,8 @@ COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 
 # Build the application in release mode
-RUN cargo install cargo-auditable
-RUN cargo auditable build --release
+RUN cargo install --locked cargo-auditable
+RUN cargo auditable build --release --locked
 
 # Runtime stage (Debian Trixie slim)
 FROM debian:trixie-slim
@@ -26,8 +25,7 @@ FROM debian:trixie-slim
 # Install runtime dependencies
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-    libpcap-dev \
-    ca-certificates \
+    libpcap0.8t64 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the binary from builder

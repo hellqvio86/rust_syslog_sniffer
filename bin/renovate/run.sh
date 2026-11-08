@@ -39,10 +39,12 @@ Options:
   -w, --write, --apply     Live mode: create/update local git branches (equivalent to --dry-run null)
   -d, --dry-run <mode>     Dry-run mode: 'full' (default), 'lookup', or 'null' (live write)
   -l, --log-level <level>  Log level: info (default), debug, warn, error
-  -t, --token <token>      GitHub Personal Access Token (or set GITHUB_TOKEN / RENOVATE_TOKEN)
   -p, --platform <name>    Platform: 'local' (default without token) or 'github'
   --cache-dir <dir>        Directory to store Renovate cache (default: ~/.cache/renovate)
   -h, --help               Show this help message and exit
+
+Environment:
+  RENOVATE_TOKEN or GITHUB_TOKEN  GitHub Personal Access Token (can also be loaded from .env)
 
 Examples:
   # View clean summary list of available update branches (no tokens needed):
@@ -96,18 +98,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --log-level=*)
       LOG_LEVEL="${1#*=}"
-      shift
-      ;;
-    -t|--token)
-      if [[ $# -lt 2 ]]; then
-        echo "Error: $1 requires a token argument." >&2
-        exit 1
-      fi
-      TOKEN="$2"
-      shift 2
-      ;;
-    --token=*)
-      TOKEN="${1#*=}"
       shift
       ;;
     -p|--platform)
@@ -217,11 +207,12 @@ if [[ "$PLATFORM" == "local" ]]; then
 else
   if [[ -z "$TOKEN" ]]; then
     echo "❌ Error: Platform is '${PLATFORM}' but no GitHub token was provided." >&2
-    echo "Pass --token <token> or export GITHUB_TOKEN / RENOVATE_TOKEN." >&2
+    echo "Export GITHUB_TOKEN or RENOVATE_TOKEN (or configure in .env)." >&2
     exit 1
   fi
+  export RENOVATE_TOKEN="${TOKEN}"
   DOCKER_ARGS+=(
-    -e "RENOVATE_TOKEN=${TOKEN}"
+    -e RENOVATE_TOKEN
     -e "RENOVATE_REPOSITORIES=[\"${REPO_NAME}\"]"
     "$RENOVATE_IMAGE"
     renovate

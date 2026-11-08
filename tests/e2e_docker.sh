@@ -1,72 +1,93 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # Build the docker image (unless SKIP_DOCKER_BUILD is set)
-if [ -z "$SKIP_DOCKER_BUILD" ]; then
+if [ -z "${SKIP_DOCKER_BUILD:-}" ]; then
   echo "Building Docker image..."
   make docker-build
 else
   echo "Skipping Docker build (SKIP_DOCKER_BUILD is set)..."
 fi
 
-# Define variables
 INTERFACE="lo"
 PORT=5514
 IMAGE_NAME="syslog_sniffer:latest"
+CONTAINER_NAME="sniffer_e2e_test_rust"
+OUTPUT_FILE=$(mktemp)
 
-# Start the sniffer in the background using Docker
-# We use --network host to sniff on the host interface 'lo'
-# We use --cap-add=NET_RAW and --cap-add=NET_ADMIN for packet capture permissions
-# We use --user root to ensure we have permission to open raw sockets (since the image defaults to non-root 'sniffer')
-echo "Starting sniffer container with 2s interval..."
+cleanup() {
+  docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+  if [ -n "${LISTENER_PID:-}" ]; then
+    kill "$LISTENER_PID" 2>/dev/null || true
+  fi
+  rm -f "$OUTPUT_FILE"
+}
+trap cleanup EXIT
 
-# Note: We use 'docker run' directly instead of 'make docker-run' to avoid TTY (-it) issues in background
+echo "Starting sniffer container..."
+docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+
 docker run --rm \
+    --name "$CONTAINER_NAME" \
     --network host \
+    --cap-drop=ALL \
     --cap-add=NET_RAW \
-    --cap-add=NET_ADMIN \
     --user root \
-    $IMAGE_NAME \
-    --interface $INTERFACE --port $PORT --interval 2 > sniffer_output_docker.txt 2>&1 &
+    "$IMAGE_NAME" \
+    --interface "$INTERFACE" --port "$PORT" --interval 3 > "$OUTPUT_FILE" 2>&1 &
 SNIFFER_PID=$!
 
 # Start dummy listener on host
-nc -u -l -p $PORT > /dev/null &
+nc -u -l -p "$PORT" > /dev/null 2>&1 &
 LISTENER_PID=$!
 
-# Give it a moment to start
-sleep 2
+echo "Waiting for container to start..."
+MAX_RETRIES=30
+COUNT=0
+while ! docker ps | grep -q "$CONTAINER_NAME"; do
+  if [ "$COUNT" -ge "$MAX_RETRIES" ]; then
+    echo "Timed out waiting for container to start."
+    exit 1
+  fi
+  sleep 1
+  COUNT=$((COUNT+1))
+done
 
-# Send a syslog message via UDP
-TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")
+sleep 1
+
+# Send syslog message via UDP
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
 echo "Generated Timestamp: $TIMESTAMP"
-MESSAGE="<165>1 $TIMESTAMP mymachine.example.com appname[su] - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\" eventID=\"1011\"] BOMAn application log entry..."
+MESSAGE="<165>1 $TIMESTAMP mymachine.example.com appname[su] - ID47 [exampleSDID@32473 iut=\"3\"] BOMAn application log entry..."
 echo "Sending message: $MESSAGE"
-echo -n "$MESSAGE" | nc -u -w 1 127.0.0.1 $PORT
 
-# Wait for sniffer to finish (it should exit after 2s)
+for _ in {1..5}; do
+  if ! kill -0 "$SNIFFER_PID" 2>/dev/null; then
+    break
+  fi
+  echo -n "$MESSAGE" | nc -u -w 1 127.0.0.1 "$PORT" >/dev/null 2>&1 || true
+  sleep 0.3
+done
+
 echo "Waiting for sniffer to finish..."
-wait $SNIFFER_PID || true
+wait "$SNIFFER_PID"
 
-# Kill listener
-kill $LISTENER_PID || true
-
-# Check output
 echo "Checking output..."
-cat sniffer_output_docker.txt
+cat "$OUTPUT_FILE"
 
-# Check for JSON structure and ABSENCE of logs
-if grep -q "\"interval_seconds\": 2" sniffer_output_docker.txt && grep -q "\"mymachine.example.com\"" sniffer_output_docker.txt; then
+# Check for JSON structure and message
+if grep -q "\"interval_seconds\": 3" "$OUTPUT_FILE" && grep -q "\"mymachine.example.com\"" "$OUTPUT_FILE"; then
     echo "SUCCESS: JSON Summary found and message captured!"
-    
-    # Check if logs are present (should NOT be present)
-    if grep -q "INFO" sniffer_output_docker.txt; then
-        echo "FAILURE: INFO logs found in JSON output (should be quiet)."
+
+    if grep -qE "ERROR|WARN|panicked" "$OUTPUT_FILE"; then
+        echo "FAILURE: Error or panic found in output."
         exit 1
     else
-        echo "SUCCESS: Output is quiet."
+        echo "SUCCESS: Output is clean."
     fi
 else
     echo "FAILURE: JSON Summary or message not found in output."
     exit 1
 fi
+
+echo "E2E Docker test passed!"

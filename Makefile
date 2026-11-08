@@ -1,4 +1,4 @@
-.PHONY: build run clean test docker-build docker-run docker-push help renovate renovate-summary fmt-check clippy lint secrets trivy hooks
+.PHONY: all build run clean test check fmt fmt-check format clippy lint coverage sbom docker-build docker-run docker-run-interactive docker-tag docker-push docker-clean renovate renovate-summary help hooks secrets trivy
 
 # Variables
 CARGO = cargo
@@ -7,6 +7,8 @@ DOCKER = docker
 IMAGE_NAME = syslog_sniffer
 IMAGE_TAG = latest
 REGISTRY ?= # Set your registry here, e.g., docker.io/username
+DOCKER_OPTS ?=
+ARGS ?=
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -28,8 +30,8 @@ sbom: ## Generate SBOM in CycloneDX format
 	fi
 	$(CARGO) cyclonedx --format json --override-filename "sbom"
 
-run: ## Run the application
-	$(CARGO) run
+run: ## Run the application (pass arguments via ARGS="--interface lo ...")
+	$(CARGO) run -- $(ARGS)
 
 clean: ## Clean build artifacts
 	$(CARGO) clean
@@ -63,17 +65,19 @@ docker-build: ## Build Docker image
 	$(DOCKER) build -t $(IMAGE_NAME):$(IMAGE_TAG) .
 
 docker-run: ## Run Docker container
-	$(DOCKER) run --rm -it \
+	$(DOCKER) run --rm \
+		--cap-drop=ALL \
 		--cap-add=NET_RAW \
-		--cap-add=NET_ADMIN \
 		--network host \
+		$(DOCKER_OPTS) \
 		$(IMAGE_NAME):$(IMAGE_TAG) $(ARGS)
 
 docker-run-interactive: ## Run Docker container interactively with shell
 	$(DOCKER) run --rm -it \
+		--cap-drop=ALL \
 		--cap-add=NET_RAW \
-		--cap-add=NET_ADMIN \
 		--network host \
+		$(DOCKER_OPTS) \
 		--entrypoint /bin/sh \
 		$(IMAGE_NAME):$(IMAGE_TAG)
 
@@ -99,14 +103,13 @@ ifdef REGISTRY
 	$(DOCKER) rmi $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG) || true
 endif
 
-all: clean build test sbom docker-build ## Clean, build, test, and create Docker image
+all: clean build test docker-build ## Clean, build, test, and create Docker image
 
 renovate: ## Run Renovate locally in dry-run mode
 	@./bin/renovate/run.sh
 
 renovate-summary: ## Run Renovate locally and show summary of branches/updates
 	@./bin/renovate/run.sh --summary
-
 
 hooks: ## Install git pre-commit hook
 	@chmod +x .githooks/pre-commit 2>/dev/null || true
@@ -132,4 +135,3 @@ trivy: ## Run Trivy vulnerability scanning
 	else \
 		echo "ERROR: trivy or docker is required!" >&2 && exit 1; \
 	fi
-

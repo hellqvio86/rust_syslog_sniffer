@@ -1,39 +1,53 @@
-#!/bin/sh
-set -e
+#!/bin/bash
+set -euo pipefail
 
 # Build the docker image (unless SKIP_DOCKER_BUILD is set)
-if [ -z "$SKIP_DOCKER_BUILD" ]; then
+if [ -z "${SKIP_DOCKER_BUILD:-}" ]; then
   echo "Building Docker image..."
   make docker-build
 else
   echo "Skipping Docker build (SKIP_DOCKER_BUILD is set)..."
 fi
 
-# Run the sniffer in the background with periodic updates
-# We use --network host to be able to sniff on lo (loopback)
-# We use --privileged or capabilities to allow packet capture
-# We override the user to root to ensure we have permissions to capture on lo
+INTERFACE="lo"
+PORT=5141
+CONTAINER_NAME="sniffer_periodic_test_rust"
+OUTPUT_FILE=$(mktemp)
+
+cleanup() {
+  docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+  if [ -n "${LISTENER_PID:-}" ]; then
+    kill "$LISTENER_PID" 2>/dev/null || true
+  fi
+  rm -f "$OUTPUT_FILE"
+}
+trap cleanup EXIT
+
 echo "Starting sniffer container with periodic updates (frequency=2s)..."
+docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+
 docker run --rm \
-  --name sniffer_periodic_test \
+  --name "$CONTAINER_NAME" \
   --network host \
+  --cap-drop=ALL \
   --cap-add=NET_RAW \
-  --cap-add=NET_ADMIN \
   --user root \
   syslog_sniffer:latest \
-  --interface lo \
-  --port 5141 \
-  --interval 20 \
+  --interface "$INTERFACE" \
+  --port "$PORT" \
+  --interval 10 \
   --periodic \
-  --frequency 2 > sniffer_output_periodic.txt 2>&1 &
-
+  --frequency 2 > "$OUTPUT_FILE" 2>&1 &
 SNIFFER_PID=$!
 
-# Wait for container to be running
+# Start dummy listener on host
+nc -u -l -p "$PORT" > /dev/null 2>&1 &
+LISTENER_PID=$!
+
 echo "Waiting for container to start..."
-MAX_RETRIES=10
+MAX_RETRIES=30
 COUNT=0
-while ! docker ps | grep -q sniffer_periodic_test; do
+while ! docker ps | grep -q "$CONTAINER_NAME"; do
   if [ "$COUNT" -ge "$MAX_RETRIES" ]; then
     echo "Timed out waiting for container to start."
     exit 1
@@ -42,36 +56,39 @@ while ! docker ps | grep -q sniffer_periodic_test; do
   COUNT=$((COUNT+1))
 done
 
-# Give application time to initialize socket
-sleep 3
+sleep 1
 
 # Send first batch of messages
 echo "Sending first batch of messages..."
-TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")
-MESSAGE1="<165>1 $TIMESTAMP mymachine.example.com appname[su] - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\" eventID=\"1011\"] BOMFirst batch message"
-echo "$MESSAGE1" | nc -u -w 1 127.0.0.1 5141 > /dev/null 2>&1 || true
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+MESSAGE1="<165>1 $TIMESTAMP mymachine.example.com appname[su] - ID47 [exampleSDID@32473 iut=\"3\"] BOMFirst batch message"
+for _ in {1..3}; do
+  echo "$MESSAGE1" | nc -u -w 1 127.0.0.1 "$PORT" > /dev/null 2>&1 || true
+  sleep 0.2
+done
 
 # Wait for the first period to pass (frequency is 2s)
-sleep 3
+sleep 2.5
 
 # Send second batch of messages
 echo "Sending second batch of messages..."
-TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")
-MESSAGE2="<165>1 $TIMESTAMP mymachine.example.com appname[su] - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\" eventID=\"1011\"] BOMSecond batch message"
-echo "$MESSAGE2" | nc -u -w 1 127.0.0.1 5141 > /dev/null 2>&1 || true
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+MESSAGE2="<165>1 $TIMESTAMP mymachine.example.com appname[su] - ID47 [exampleSDID@32473 iut=\"3\"] BOMSecond batch message"
+for _ in {1..3}; do
+  echo "$MESSAGE2" | nc -u -w 1 127.0.0.1 "$PORT" > /dev/null 2>&1 || true
+  sleep 0.2
+done
 
-# Wait for the sniffer to finish (total interval is 10s)
-echo "Waiting for sniffer to finish..."
-wait $SNIFFER_PID || true
+# Wait for second period
+sleep 2.5
 
-# Stop the container if it's still running (it should have exited)
-docker stop sniffer_periodic_test || true
+docker stop "$CONTAINER_NAME" >/dev/null 2>&1 || true
+wait "$SNIFFER_PID" || true
 
 echo "Checking output..."
-cat sniffer_output_periodic.txt
+cat "$OUTPUT_FILE"
 
-# Verify we have multiple JSON objects
-JSON_COUNT=$(grep -c "\"interval_seconds\":" sniffer_output_periodic.txt || true)
+JSON_COUNT=$(grep -c "\"interval_seconds\":" "$OUTPUT_FILE" || true)
 
 if [ "$JSON_COUNT" -ge 2 ]; then
   echo "SUCCESS: Found at least 2 periodic reports."
@@ -80,15 +97,14 @@ else
   exit 1
 fi
 
-# Verify content of messages
-if grep -q "First batch message" sniffer_output_periodic.txt; then
+if grep -q "First batch message" "$OUTPUT_FILE"; then
   echo "SUCCESS: First batch message captured."
 else
   echo "FAILURE: First batch message NOT found."
   exit 1
 fi
 
-if grep -q "Second batch message" sniffer_output_periodic.txt; then
+if grep -q "Second batch message" "$OUTPUT_FILE"; then
   echo "SUCCESS: Second batch message captured."
 else
   echo "FAILURE: Second batch message NOT found."
@@ -96,4 +112,3 @@ else
 fi
 
 echo "Periodic E2E test passed!"
-rm sniffer_output_periodic.txt

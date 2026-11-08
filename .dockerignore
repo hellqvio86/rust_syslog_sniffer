@@ -2,7 +2,14 @@ target/
 .git/
 .github/
 .githooks/
+.vscode/
 coverage/
+docs/
+ansible/
+tests/
 *.svg
 *.html
 *.xml
+*.txt
+*.md
+.env

@@ -1,0 +1,8 @@
+target/
+.git/
+.github/
+.githooks/
+coverage/
+*.svg
+*.html
+*.xml

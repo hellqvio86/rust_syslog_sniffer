@@ -1,4 +1,4 @@
-.PHONY: build run clean test docker-build docker-run docker-push help renovate renovate-summary
+.PHONY: build run clean test docker-build docker-run docker-push help renovate renovate-summary fmt-check clippy lint secrets trivy hooks
 
 # Variables
 CARGO = cargo
@@ -44,12 +44,17 @@ check: ## Check code without building
 fmt: ## Format code
 	$(CARGO) fmt
 
+fmt-check: ## Check code formatting
+	$(CARGO) fmt -- --check
+
 format: ## Format code and fix lints
 	$(CARGO) fmt
 	$(CARGO) clippy --fix --allow-dirty --allow-staged
 
 clippy: ## Run clippy linter
-	$(CARGO) clippy -- -D warnings
+	$(CARGO) clippy --all-targets -- -D warnings
+
+lint: fmt-check clippy ## Run fmt check and clippy linter
 
 coverage: ## Generate coverage report
 	$(CARGO) tarpaulin --out Xml --out Html

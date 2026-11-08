@@ -50,7 +50,7 @@ mod tests {
         let config = Config::parse_from(args);
         assert_eq!(config.interface, "eth0");
         assert_eq!(config.port, 1234);
-        assert_eq!(config.debug, false);
+        assert!(!config.debug);
     }
 
     #[test]
@@ -89,9 +89,9 @@ mod tests {
 
         assert_eq!(config.interface, "eth0");
         assert_eq!(config.port, 514); // Default port
-        assert_eq!(config.debug, false); // Default debug
+        assert!(!config.debug); // Default debug
         assert_eq!(config.interval, 10); // Default interval
-        assert_eq!(config.periodic, false); // Default periodic
+        assert!(!config.periodic); // Default periodic
         assert_eq!(config.frequency, 5); // Default frequency
     }
 
@@ -114,9 +114,9 @@ mod tests {
 
         assert_eq!(config.interface, "eth0");
         assert_eq!(config.port, 1024);
-        assert_eq!(config.debug, true);
+        assert!(config.debug);
         assert_eq!(config.interval, 20);
-        assert_eq!(config.periodic, true);
+        assert!(config.periodic);
         assert_eq!(config.frequency, 15);
     }
 }

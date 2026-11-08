@@ -255,5 +255,9 @@ mod tests {
         // Non-UTF-8 payload in parse_syslog_packet
         let pkt11 = parse_syslog_packet(b"<13>\xff\xfe non utf8").unwrap();
         assert!(pkt11.is_non_utf8);
+
+        let pkt12 = parse_syslog_packet(b"<13>valid utf8").unwrap();
+        assert!(!pkt12.is_non_utf8);
+        assert_eq!(pkt12.message, "<13>valid utf8");
     }
 }

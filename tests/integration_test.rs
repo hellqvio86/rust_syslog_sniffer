@@ -31,3 +31,44 @@ fn test_full_flow_simulation() {
     assert!(summary.hosts.contains_key("mymachine"));
     assert_eq!(summary.hosts["mymachine"].count, 1);
 }
+
+#[test]
+fn test_cli_binary_execution() {
+    let bin = env!("CARGO_BIN_EXE_syslog_sniffer");
+    let output = std::process::Command::new(bin)
+        .arg("--help")
+        .output()
+        .expect("run binary --help");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("syslog_sniffer"));
+
+    // Create a dummy pcap file to execute the full main() lifecycle
+    let dummy_pkt = vec![0x00; 14];
+    let mut file_bytes = Vec::new();
+    file_bytes.extend_from_slice(&0xa1b2c3d4u32.to_ne_bytes());
+    file_bytes.extend_from_slice(&2u16.to_ne_bytes());
+    file_bytes.extend_from_slice(&4u16.to_ne_bytes());
+    file_bytes.extend_from_slice(&0i32.to_ne_bytes());
+    file_bytes.extend_from_slice(&0u32.to_ne_bytes());
+    file_bytes.extend_from_slice(&65535u32.to_ne_bytes());
+    file_bytes.extend_from_slice(&1u32.to_ne_bytes());
+
+    file_bytes.extend_from_slice(&1700000000u32.to_ne_bytes());
+    file_bytes.extend_from_slice(&0u32.to_ne_bytes());
+    let len = dummy_pkt.len() as u32;
+    file_bytes.extend_from_slice(&len.to_be_bytes());
+    file_bytes.extend_from_slice(&len.to_be_bytes());
+    file_bytes.extend_from_slice(&dummy_pkt);
+
+    let path = std::env::temp_dir().join(format!("test_int_pcap_{}.pcap", std::process::id()));
+    std::fs::write(&path, file_bytes).expect("write temp pcap");
+
+    let out = std::process::Command::new(bin)
+        .args(["--read-pcap", path.to_str().unwrap(), "--interval", "1"])
+        .output()
+        .expect("run binary with pcap");
+    assert!(out.status.success());
+
+    let _ = std::fs::remove_file(&path);
+}

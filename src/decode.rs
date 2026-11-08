@@ -155,9 +155,6 @@ fn decode_ipv4(slice: &[u8]) -> Option<Datagram<'_>> {
         return None;
     }
     let actual_ip_len = std::cmp::min(total_len, slice.len());
-    if actual_ip_len < ihl {
-        return None;
-    }
 
     // Check fragment offset (drop non-first fragments)
     let frag_field = u16::from_be_bytes([slice[6], slice[7]]);
@@ -188,9 +185,6 @@ fn decode_ipv6(slice: &[u8]) -> Option<Datagram<'_>> {
 
     let payload_len = u16::from_be_bytes([slice[4], slice[5]]) as usize;
     let total_v6_len = std::cmp::min(40 + payload_len, slice.len());
-    if total_v6_len < 40 {
-        return None;
-    }
 
     let mut next_hdr = slice[6];
 
@@ -447,6 +441,10 @@ mod tests {
         assert_eq!(
             datagram.src_ip,
             IpAddr::V6(Ipv6Addr::new(0x2001, 0x0db8, 0, 0, 0, 0, 0, 1))
+        );
+        assert_eq!(
+            datagram.dst_ip,
+            IpAddr::V6(Ipv6Addr::new(0x2001, 0x0db8, 0, 0, 0, 0, 0, 2))
         );
         assert_eq!(datagram.src_port, 55555);
         assert_eq!(datagram.dst_port, 514);
@@ -765,16 +763,24 @@ mod tests {
         let null_loop_bad = vec![0x00, 0x00, 0x00, 0x99, 0x30, 0x00];
         assert!(decode_datagram(Datalink::NullLoop, &null_loop_bad).is_none());
 
-        // IPv4 with wrong version nibble
-        let bad_v4_ver = vec![0x55; 20];
-        assert!(decode_datagram(Datalink::Raw, &bad_v4_ver).is_none());
+        // Ethernet frame helper: 12 bytes MACs + 2 bytes ethertype + payload
+        let make_eth = |ethertype: u16, payload: &[u8]| -> Vec<u8> {
+            let mut f = vec![0x00; 12];
+            f.extend_from_slice(&ethertype.to_be_bytes());
+            f.extend_from_slice(payload);
+            f
+        };
 
-        // IPv6 < 40 bytes
-        let short_v6 = vec![0x60; 30];
-        assert!(decode_datagram(Datalink::Raw, &short_v6).is_none());
+        // IPv4 with wrong version nibble inside 0x0800 frame
+        let bad_v4_ver = make_eth(0x0800, &[0x55; 20]);
+        assert!(decode_datagram(Datalink::Ethernet, &bad_v4_ver).is_none());
 
-        // IPv6 with wrong version nibble
-        let bad_v6_ver = vec![0x40; 40];
-        assert!(decode_datagram(Datalink::Raw, &bad_v6_ver).is_none());
+        // IPv6 < 40 bytes inside 0x86DD frame
+        let short_v6 = make_eth(0x86DD, &[0x60; 30]);
+        assert!(decode_datagram(Datalink::Ethernet, &short_v6).is_none());
+
+        // IPv6 with wrong version nibble inside 0x86DD frame
+        let bad_v6_ver = make_eth(0x86DD, &[0x40; 40]);
+        assert!(decode_datagram(Datalink::Ethernet, &bad_v6_ver).is_none());
     }
 }

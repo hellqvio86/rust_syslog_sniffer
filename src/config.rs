@@ -136,10 +136,6 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn parse() -> Self {
-        <Self as clap::Parser>::parse()
-    }
-
     /// Effective total duration in seconds.
     /// In periodic mode with no duration specified, returns None (run indefinitely).
     /// If duration is explicitly 0, returns None (run indefinitely).

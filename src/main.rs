@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+use clap::Parser;
 use log::{error, warn};
 use std::env;
 use std::process::ExitCode;
@@ -11,15 +12,17 @@ use syslog_sniffer::config::{determine_log_level, Config};
 use syslog_sniffer::PacketSource;
 
 fn main() -> ExitCode {
-    let args = Config::parse();
+    init_and_run(Config::parse())
+}
 
+fn init_and_run(args: Config) -> ExitCode {
     let mut builder = env_logger::Builder::from_default_env();
     let env_rust_log_is_set = env::var("RUST_LOG").is_ok();
 
     if let Some(level) = determine_log_level(args.debug, env_rust_log_is_set) {
         builder.filter_level(level);
     }
-    builder.init();
+    let _ = builder.try_init();
 
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_signal = shutdown.clone();
@@ -81,7 +84,8 @@ mod tests {
             "514",
         ]);
         let shutdown = Arc::new(AtomicBool::new(false));
-        assert_eq!(run_app(config, shutdown), ExitCode::FAILURE);
+        assert_eq!(run_app(config.clone(), shutdown), ExitCode::FAILURE);
+        assert_eq!(init_and_run(config), ExitCode::FAILURE);
     }
 
     #[test]

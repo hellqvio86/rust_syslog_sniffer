@@ -23,9 +23,7 @@ pub fn run_sniffer_with_writer<S: PacketSource, W: Write>(
     mut writer: W,
     shutdown: Arc<AtomicBool>,
 ) -> Result<(), SnifferError> {
-    if std::env::args().any(|a| a == "--interval" || a.starts_with("--interval=")) {
-        warn!("The --interval argument is deprecated; use --duration instead.");
-    }
+    check_interval_deprecated(std::env::args());
 
     config
         .validate()
@@ -86,15 +84,7 @@ pub fn run_sniffer_with_writer<S: PacketSource, W: Write>(
                 }
                 .map_err(|e| SnifferError::Capture(format!("JSON serialization failed: {}", e)))?;
 
-                if let Err(e) = writeln!(writer, "{}", json) {
-                    if e.kind() == std::io::ErrorKind::BrokenPipe {
-                        return Ok(());
-                    }
-                    return Err(SnifferError::Capture(format!(
-                        "Failed to write output: {}",
-                        e
-                    )));
-                }
+                write_summary_json(&mut writer, &json)?;
                 stats.clear();
             }
 
@@ -187,18 +177,32 @@ pub fn run_sniffer_with_writer<S: PacketSource, W: Write>(
         }
         .map_err(|e| SnifferError::Capture(format!("JSON serialization failed: {}", e)))?;
 
-        if let Err(e) = writeln!(writer, "{}", json) {
-            if e.kind() == std::io::ErrorKind::BrokenPipe {
-                return Ok(());
-            }
-            return Err(SnifferError::Capture(format!(
-                "Failed to write output: {}",
-                e
-            )));
-        }
+        write_summary_json(&mut writer, &json)?;
     }
 
     Ok(())
+}
+
+fn write_summary_json<W: Write>(writer: &mut W, json: &str) -> Result<(), SnifferError> {
+    if let Err(e) = writeln!(writer, "{}", json) {
+        if e.kind() == std::io::ErrorKind::BrokenPipe {
+            return Ok(());
+        }
+        return Err(SnifferError::Capture(format!(
+            "Failed to write output: {}",
+            e
+        )));
+    }
+    Ok(())
+}
+
+fn check_interval_deprecated<I: IntoIterator<Item = String>>(args: I) {
+    if args
+        .into_iter()
+        .any(|a| a == "--interval" || a.starts_with("--interval="))
+    {
+        warn!("The --interval argument is deprecated; use --duration instead.");
+    }
 }
 
 #[cfg(test)]
@@ -288,8 +292,16 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
     }
 
+    fn init_test_logger() {
+        let _ = env_logger::builder()
+            .filter_level(log::LevelFilter::Debug)
+            .is_test(true)
+            .try_init();
+    }
+
     #[test]
     fn test_run_sniffer_basic() {
+        init_test_logger();
         init_logger();
         let config = default_test_config();
 
@@ -389,6 +401,7 @@ mod tests {
 
     #[test]
     fn test_run_sniffer_persistent_error() {
+        init_test_logger();
         let mut config = default_test_config();
         config.duration = Some(10);
         config.frequency = 5;
@@ -542,9 +555,88 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
         let shutdown = Arc::new(AtomicBool::new(false));
 
-        let res = run_sniffer_with_writer(config, source, &mut buf, shutdown);
+        let res = run_sniffer_with_writer(config.clone(), source, &mut buf, shutdown);
         assert!(res.is_ok());
         let output = String::from_utf8(buf.into_inner()).unwrap();
         assert!(output.contains("\"hosts\":"));
+
+        // Test Pretty format in periodic interval
+        let mut config_pretty = config.clone();
+        config_pretty.format = OutputFormat::Pretty;
+        let source_pretty = SleepingSource { count: 0 };
+        let mut buf_pretty = Cursor::new(Vec::new());
+        let res_pretty = run_sniffer_with_writer(
+            config_pretty,
+            source_pretty,
+            &mut buf_pretty,
+            Arc::new(AtomicBool::new(false)),
+        );
+        assert!(res_pretty.is_ok());
+
+        // Test BrokenPipe in periodic interval
+        let mut failing_writer = FailingWriter { broken_pipe: true };
+        let source_broken = SleepingSource { count: 0 };
+        let res_broken = run_sniffer_with_writer(
+            config,
+            source_broken,
+            &mut failing_writer,
+            Arc::new(AtomicBool::new(false)),
+        );
+        assert!(res_broken.is_ok());
+    }
+
+    #[test]
+    fn test_check_interval_deprecated() {
+        check_interval_deprecated(vec!["--interval".to_string()]);
+        check_interval_deprecated(vec!["--interval=10".to_string()]);
+        check_interval_deprecated(vec!["--duration".to_string(), "10".to_string()]);
+    }
+
+    #[test]
+    fn test_run_sniffer_duration_timeout() {
+        let mut config = default_test_config();
+        config.duration = Some(1);
+
+        struct IdleSource;
+        impl PacketSource for IdleSource {
+            fn next_packet(&mut self) -> Result<Option<PacketData>, SnifferError> {
+                std::thread::sleep(Duration::from_millis(50));
+                Ok(None)
+            }
+            fn datalink(&self) -> Datalink {
+                Datalink::Ethernet
+            }
+        }
+
+        let mut buf = Cursor::new(Vec::new());
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let res = run_sniffer_with_writer(config, IdleSource, &mut buf, shutdown);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_run_sniffer_duration_zero_shutdown() {
+        let mut config = default_test_config();
+        config.duration = Some(0);
+        config.emit_empty = true;
+
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let shutdown_clone = shutdown.clone();
+
+        struct ShutdownSource(Arc<AtomicBool>);
+        impl PacketSource for ShutdownSource {
+            fn next_packet(&mut self) -> Result<Option<PacketData>, SnifferError> {
+                self.0.store(true, Ordering::Relaxed);
+                Ok(None)
+            }
+            fn datalink(&self) -> Datalink {
+                Datalink::Ethernet
+            }
+        }
+
+        let mut buf = Cursor::new(Vec::new());
+        let res =
+            run_sniffer_with_writer(config, ShutdownSource(shutdown_clone), &mut buf, shutdown);
+        assert!(res.is_ok());
     }
 }

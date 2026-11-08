@@ -58,8 +58,8 @@ clippy: ## Run clippy linter
 
 lint: fmt-check clippy ## Run fmt check and clippy linter
 
-coverage: ## Generate coverage report
-	$(CARGO) tarpaulin --out Xml --out Html
+coverage: ## Generate coverage report (enforces >= 80% coverage)
+	$(CARGO) tarpaulin --fail-under 80 --follow-exec --out Xml --out Html
 
 docker-build: ## Build Docker image
 	$(DOCKER) build -t $(IMAGE_NAME):$(IMAGE_TAG) .

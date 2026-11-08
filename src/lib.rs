@@ -47,6 +47,9 @@ impl<T: PacketSource + ?Sized> PacketSource for Box<T> {
     fn stats(&mut self) -> Option<CaptureStats> {
         (**self).stats()
     }
+    fn get_datalink(&self) -> String {
+        (**self).get_datalink()
+    }
 }
 
 #[cfg(test)]

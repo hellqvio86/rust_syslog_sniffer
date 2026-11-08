@@ -36,6 +36,7 @@ impl PcapCapture {
                 let msg = e.to_string();
                 if msg.to_lowercase().contains("permission")
                     || msg.to_lowercase().contains("operation not permitted")
+                    || msg.contains("CAP_NET_RAW")
                 {
                     SnifferError::PermissionDenied(format!("{} (needs CAP_NET_RAW or root)", msg))
                 } else {
@@ -165,6 +166,8 @@ mod tests {
 
         let mut file_cap = FileCapture::new(&path).expect("open valid pcap");
         assert_eq!(file_cap.datalink(), Datalink::Ethernet);
+        assert_eq!(file_cap.get_datalink(), "Ethernet");
+        assert_eq!(file_cap.stats(), None);
 
         let p1 = file_cap.next_packet().expect("read packet 1");
         assert_eq!(p1, Some(PacketData { data: dummy_pkt }));
@@ -176,12 +179,46 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires root / capture privileges"]
-    fn test_capture_lo() {
+    fn test_file_capture_corrupted_packet_header() {
+        let mut file_bytes = Vec::new();
+        // Global Header (24 bytes)
+        file_bytes.extend_from_slice(&0xa1b2c3d4u32.to_ne_bytes());
+        file_bytes.extend_from_slice(&2u16.to_ne_bytes());
+        file_bytes.extend_from_slice(&4u16.to_ne_bytes());
+        file_bytes.extend_from_slice(&0i32.to_ne_bytes());
+        file_bytes.extend_from_slice(&0u32.to_ne_bytes());
+        file_bytes.extend_from_slice(&65535u32.to_ne_bytes());
+        file_bytes.extend_from_slice(&1u32.to_ne_bytes()); // Ethernet = 1
+
+        // Incomplete Packet Header (only 8 bytes instead of 16)
+        file_bytes.extend_from_slice(&[0xaa; 8]);
+
+        let path =
+            std::env::temp_dir().join(format!("test_pcap_corrupt_{}.pcap", std::process::id()));
+        std::fs::write(&path, file_bytes).expect("write temp pcap");
+
+        let mut file_cap = FileCapture::new(&path).expect("open corrupt pcap");
+        let res = file_cap.next_packet();
+        assert!(matches!(res, Err(SnifferError::Pcap(_))));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_capture_lo_or_permission_denied() {
         let result = setup_capture("lo", 514);
-        if let Ok(mut cap) = result {
-            let _ = cap.datalink();
-            let _ = cap.next_packet();
+        match result {
+            Ok(mut cap) => {
+                let _ = cap.datalink();
+                let _ = cap.next_packet();
+                let _ = cap.stats();
+            }
+            Err(SnifferError::PermissionDenied(msg)) => {
+                assert!(msg.contains("needs CAP_NET_RAW or root"));
+            }
+            Err(e) => {
+                assert!(!e.to_string().is_empty());
+            }
         }
     }
 }

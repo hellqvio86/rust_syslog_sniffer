@@ -247,6 +247,10 @@ mod tests {
         assert_eq!(config.effective_sample_bytes(), 256);
         assert_eq!(config.format, OutputFormat::Pretty);
         assert!(!config.emit_empty);
+
+        let mut zero_duration = config.clone();
+        zero_duration.duration = Some(0);
+        assert_eq!(zero_duration.effective_duration_secs(), None);
     }
 
     #[test]

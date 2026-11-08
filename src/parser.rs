@@ -209,4 +209,51 @@ mod tests {
         assert!(parse_syslog_packet(b"").is_none());
         assert!(parse_syslog_packet(b"\r\n\0").is_none());
     }
+
+    #[test]
+    fn test_parser_edge_cases() {
+        // Plain text without '<'
+        let pkt1 = parse_syslog_packet(b"plain text message").unwrap();
+        assert_eq!(pkt1.hostname, None);
+
+        // Incomplete PRI brackets
+        let pkt2 = parse_syslog_packet(b"<13incomplete").unwrap();
+        assert_eq!(pkt2.hostname, None);
+
+        // Empty PRI '<>'
+        let pkt3 = parse_syslog_packet(b"<>test").unwrap();
+        assert_eq!(pkt3.hostname, None);
+
+        // Too long PRI '<123456>'
+        let pkt4 = parse_syslog_packet(b"<123456>test").unwrap();
+        assert_eq!(pkt4.hostname, None);
+
+        // Non-numeric PRI '<abc>'
+        let pkt5 = parse_syslog_packet(b"<abc>test").unwrap();
+        assert_eq!(pkt5.hostname, None);
+
+        // RFC 5424 incomplete header (version without timestamp)
+        let pkt6 = parse_syslog_packet(b"<14>1 ").unwrap();
+        assert_eq!(pkt6.hostname, None);
+
+        // RFC 5424 with timestamp but no hostname
+        let pkt7 = parse_syslog_packet(b"<14>1 2026-11-08T12:00:00Z").unwrap();
+        assert_eq!(pkt7.hostname, None);
+
+        // RFC 3339 with tag instead of hostname
+        let pkt8 = parse_syslog_packet(b"<34>2026-11-08T12:00:00Z su: test").unwrap();
+        assert_eq!(pkt8.hostname, None);
+
+        // RFC 3164 with only timestamp
+        let pkt9 = parse_syslog_packet(b"<13>Oct 11 22:14:15").unwrap();
+        assert_eq!(pkt9.hostname, None);
+
+        // RFC 3164 where candidate hostname is "-"
+        let pkt10 = parse_syslog_packet(b"<13>Oct 11 22:14:15 - test message").unwrap();
+        assert_eq!(pkt10.hostname, None);
+
+        // Non-UTF-8 payload in parse_syslog_packet
+        let pkt11 = parse_syslog_packet(b"<13>\xff\xfe non utf8").unwrap();
+        assert!(pkt11.is_non_utf8);
+    }
 }

@@ -421,4 +421,130 @@ mod tests {
         let res = run_sniffer_with_writer(config, source, &mut buf, shutdown);
         assert!(res.is_ok());
     }
+
+    #[test]
+    fn test_run_sniffer_validation_error() {
+        let mut config = default_test_config();
+        config.periodic = true;
+        config.frequency = 10;
+        config.duration = Some(2); // frequency > duration -> invalid!
+
+        let source = MockPacketSource::new(vec![]);
+        let mut buf = Cursor::new(Vec::new());
+        let shutdown = Arc::new(AtomicBool::new(false));
+
+        let res = run_sniffer_with_writer(config, source, &mut buf, shutdown);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("Configuration error"));
+    }
+
+    struct FailingWriter {
+        broken_pipe: bool,
+    }
+
+    impl Write for FailingWriter {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            if self.broken_pipe {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "broken pipe",
+                ))
+            } else {
+                Err(std::io::Error::other("write error"))
+            }
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_run_sniffer_broken_pipe_and_write_error() {
+        let config = default_test_config();
+        let packet = create_test_frame(b"<13>test msg");
+
+        // BrokenPipe returns Ok(())
+        let source1 = MockPacketSource::new(vec![Ok(Some(PacketData {
+            data: packet.clone(),
+        }))]);
+        let writer1 = FailingWriter { broken_pipe: true };
+        let shutdown1 = Arc::new(AtomicBool::new(false));
+        let res1 = run_sniffer_with_writer(config.clone(), source1, writer1, shutdown1);
+        assert!(res1.is_ok());
+
+        // Other write error returns Err(SnifferError::Capture)
+        let source2 = MockPacketSource::new(vec![Ok(Some(PacketData { data: packet }))]);
+        let writer2 = FailingWriter { broken_pipe: false };
+        let shutdown2 = Arc::new(AtomicBool::new(false));
+        let res2 = run_sniffer_with_writer(config, source2, writer2, shutdown2);
+        assert!(res2.is_err());
+    }
+
+    #[test]
+    fn test_run_sniffer_emit_empty_and_periodic_ndjson() {
+        let mut config = default_test_config();
+        config.periodic = true;
+        config.frequency = 1;
+        config.format = OutputFormat::Ndjson;
+        config.emit_empty = true;
+
+        let source = MockPacketSource::new(vec![Ok(None)]);
+        let mut buf = Cursor::new(Vec::new());
+        let shutdown = Arc::new(AtomicBool::new(false));
+
+        let res = run_sniffer_with_writer(config, source, &mut buf, shutdown);
+        assert!(res.is_ok());
+
+        let output = String::from_utf8(buf.into_inner()).unwrap();
+        assert!(output.contains("\"hosts\":{}"));
+    }
+
+    #[test]
+    fn test_run_sniffer_top_level_wrapper() {
+        let mut config = default_test_config();
+        config.duration = Some(1);
+        let source = MockPacketSource::new(vec![]);
+        let res = run_sniffer(config, source);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_run_sniffer_periodic_interval_report() {
+        let mut config = default_test_config();
+        config.periodic = true;
+        config.frequency = 1;
+        config.duration = Some(2);
+        config.emit_empty = true;
+        config.format = OutputFormat::Ndjson;
+
+        struct SleepingSource {
+            count: usize,
+        }
+        impl PacketSource for SleepingSource {
+            fn next_packet(&mut self) -> Result<Option<PacketData>, SnifferError> {
+                self.count += 1;
+                if self.count == 1 {
+                    std::thread::sleep(Duration::from_millis(1100));
+                    Ok(Some(PacketData {
+                        data: create_test_frame(b"<13>test periodic periodic"),
+                    }))
+                } else {
+                    std::thread::sleep(Duration::from_millis(100));
+                    Ok(None)
+                }
+            }
+            fn datalink(&self) -> Datalink {
+                Datalink::Ethernet
+            }
+        }
+
+        let source = SleepingSource { count: 0 };
+        let mut buf = Cursor::new(Vec::new());
+        let shutdown = Arc::new(AtomicBool::new(false));
+
+        let res = run_sniffer_with_writer(config, source, &mut buf, shutdown);
+        assert!(res.is_ok());
+        let output = String::from_utf8(buf.into_inner()).unwrap();
+        assert!(output.contains("\"hosts\":"));
+    }
 }

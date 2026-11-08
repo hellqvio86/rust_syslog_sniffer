@@ -140,6 +140,42 @@ mod tests {
     }
 
     #[test]
+    fn test_file_capture_valid_pcap() {
+        let dummy_pkt = vec![0x00; 14]; // 14 bytes ethernet frame
+        let mut file_bytes = Vec::new();
+        // Global Header (24 bytes)
+        file_bytes.extend_from_slice(&0xa1b2c3d4u32.to_ne_bytes());
+        file_bytes.extend_from_slice(&2u16.to_ne_bytes());
+        file_bytes.extend_from_slice(&4u16.to_ne_bytes());
+        file_bytes.extend_from_slice(&0i32.to_ne_bytes());
+        file_bytes.extend_from_slice(&0u32.to_ne_bytes());
+        file_bytes.extend_from_slice(&65535u32.to_ne_bytes());
+        file_bytes.extend_from_slice(&1u32.to_ne_bytes()); // Ethernet = 1
+
+        // Packet Header (16 bytes)
+        file_bytes.extend_from_slice(&1700000000u32.to_ne_bytes());
+        file_bytes.extend_from_slice(&0u32.to_ne_bytes());
+        let len = dummy_pkt.len() as u32;
+        file_bytes.extend_from_slice(&len.to_ne_bytes());
+        file_bytes.extend_from_slice(&len.to_ne_bytes());
+        file_bytes.extend_from_slice(&dummy_pkt);
+
+        let path = std::env::temp_dir().join(format!("test_pcap_{}.pcap", std::process::id()));
+        std::fs::write(&path, file_bytes).expect("write temp pcap");
+
+        let mut file_cap = FileCapture::new(&path).expect("open valid pcap");
+        assert_eq!(file_cap.datalink(), Datalink::Ethernet);
+
+        let p1 = file_cap.next_packet().expect("read packet 1");
+        assert_eq!(p1, Some(PacketData { data: dummy_pkt }));
+
+        let p2 = file_cap.next_packet();
+        assert!(matches!(p2, Err(SnifferError::CaptureClosed(_))));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
     #[ignore = "requires root / capture privileges"]
     fn test_capture_lo() {
         let result = setup_capture("lo", 514);

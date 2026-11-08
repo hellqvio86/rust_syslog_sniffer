@@ -314,6 +314,33 @@ mod tests {
         pkt
     }
 
+    fn build_ipv6_udp_packet(
+        src_ip: [u8; 16],
+        dst_ip: [u8; 16],
+        src_port: u16,
+        dst_port: u16,
+        payload: &[u8],
+    ) -> Vec<u8> {
+        let mut pkt = Vec::new();
+        let payload_len = (8 + payload.len()) as u16;
+
+        pkt.push(0x60); // Version 6
+        pkt.extend_from_slice(&[0x00, 0x00, 0x00]); // Traffic class & Flow label
+        pkt.extend_from_slice(&payload_len.to_be_bytes()); // Payload len
+        pkt.push(17); // Next header: UDP
+        pkt.push(64); // Hop limit
+        pkt.extend_from_slice(&src_ip);
+        pkt.extend_from_slice(&dst_ip);
+
+        // UDP
+        pkt.extend_from_slice(&src_port.to_be_bytes());
+        pkt.extend_from_slice(&dst_port.to_be_bytes());
+        pkt.extend_from_slice(&payload_len.to_be_bytes());
+        pkt.extend_from_slice(&[0x00, 0x00]);
+        pkt.extend_from_slice(payload);
+        pkt
+    }
+
     #[test]
     fn test_ethernet_ipv4_udp_with_padding() {
         let payload = b"<165>1 2026-11-08T00:00:00Z myhost app - - - Test message";
@@ -489,6 +516,265 @@ mod tests {
         assert!(decode_datagram(Datalink::Ethernet, &[0x00; 13]).is_none());
         assert!(decode_datagram(Datalink::Ethernet, &[0xFF; 25]).is_none());
         assert!(decode_datagram(Datalink::LinuxSll, &[0x00; 15]).is_none());
+        assert!(decode_datagram(Datalink::LinuxSll2, &[0x00; 19]).is_none());
         assert!(decode_datagram(Datalink::NullLoop, &[0x00; 3]).is_none());
+        assert!(decode_datagram(Datalink::NullLoop, &[0x99, 0x99, 0x99, 0x99]).is_none());
+        assert!(decode_datagram(Datalink::Raw, &[]).is_none());
+        assert!(decode_datagram(Datalink::Raw, &[0x10, 0x00]).is_none());
+        assert!(decode_datagram(Datalink::Unsupported(999), &[0x00; 50]).is_none());
+    }
+
+    #[test]
+    fn test_datalink_from_pcap_linktype() {
+        assert_eq!(Datalink::from_pcap_linktype(1), Datalink::Ethernet);
+        assert_eq!(Datalink::from_pcap_linktype(0), Datalink::NullLoop);
+        assert_eq!(Datalink::from_pcap_linktype(108), Datalink::NullLoop);
+        assert_eq!(Datalink::from_pcap_linktype(113), Datalink::LinuxSll);
+        assert_eq!(Datalink::from_pcap_linktype(276), Datalink::LinuxSll2);
+        assert_eq!(Datalink::from_pcap_linktype(12), Datalink::Raw);
+        assert_eq!(Datalink::from_pcap_linktype(228), Datalink::Raw);
+        assert_eq!(Datalink::from_pcap_linktype(229), Datalink::Raw);
+        assert_eq!(
+            Datalink::from_pcap_linktype(999),
+            Datalink::Unsupported(999)
+        );
+    }
+
+    #[test]
+    fn test_null_loop_ipv6_and_fallback() {
+        let payload = b"<14>NullLoop IPv6";
+        let v6_pkt = build_ipv6_udp_packet(
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            1234,
+            514,
+            payload,
+        );
+
+        // AF_INET6 host byte order (24 or 28 on BSD)
+        let mut frame = Vec::new();
+        frame.extend_from_slice(&24u32.to_ne_bytes());
+        frame.extend_from_slice(&v6_pkt);
+        let res = decode_datagram(Datalink::NullLoop, &frame).expect("af_inet6 null/loop");
+        assert_eq!(res.payload, payload);
+
+        // Fallback with non-matching AF but valid IPv4 byte in payload
+        let ip_pkt = build_ipv4_udp_packet([127, 0, 0, 1], [127, 0, 0, 1], 1234, 514, payload);
+        let mut frame_fallback = Vec::new();
+        frame_fallback.extend_from_slice(&999u32.to_ne_bytes());
+        frame_fallback.extend_from_slice(&ip_pkt);
+        let res_fb = decode_datagram(Datalink::NullLoop, &frame_fallback).expect("fallback ipv4");
+        assert_eq!(res_fb.payload, payload);
+
+        // Fallback with valid IPv6 byte in payload
+        let mut frame_v6_fb = Vec::new();
+        frame_v6_fb.extend_from_slice(&999u32.to_ne_bytes());
+        frame_v6_fb.extend_from_slice(&v6_pkt);
+        let res_v6_fb =
+            decode_datagram(Datalink::NullLoop, &frame_v6_fb).expect("fallback ipv6 null/loop");
+        assert_eq!(res_v6_fb.payload, payload);
+    }
+
+    #[test]
+    fn test_ipv4_decode_edge_cases() {
+        // Shorter than 20 bytes
+        assert!(decode_datagram(Datalink::Raw, &[0x45; 19]).is_none());
+
+        // Version not 4
+        let mut bad_ver = build_ipv4_udp_packet([10, 0, 0, 1], [10, 0, 0, 2], 1234, 514, b"test");
+        bad_ver[0] = 0x55;
+        assert!(decode_datagram(Datalink::Raw, &bad_ver).is_none());
+
+        // IHL < 20 (e.g. 0x44 -> IHL=16)
+        let mut bad_ihl = bad_ver.clone();
+        bad_ihl[0] = 0x44;
+        assert!(decode_datagram(Datalink::Raw, &bad_ihl).is_none());
+
+        // total_length < IHL
+        let mut bad_tot = bad_ver.clone();
+        bad_tot[0] = 0x45;
+        bad_tot[2] = 0;
+        bad_tot[3] = 10;
+        assert!(decode_datagram(Datalink::Raw, &bad_tot).is_none());
+
+        // UDP slice < 8
+        let mut truncated_udp = bad_ver.clone();
+        truncated_udp[0] = 0x45;
+        truncated_udp.truncate(24); // only 4 bytes of UDP
+        assert!(decode_datagram(Datalink::Raw, &truncated_udp).is_none());
+
+        // UDP len < 8
+        let mut bad_udp_len =
+            build_ipv4_udp_packet([10, 0, 0, 1], [10, 0, 0, 2], 1234, 514, b"msg");
+        bad_udp_len[24] = 0;
+        bad_udp_len[25] = 4; // UDP len = 4 < 8
+        assert!(decode_datagram(Datalink::Raw, &bad_udp_len).is_none());
+
+        // Truncated capture: packet truncated so udp_slice is shorter than udp_len
+        let mut trunc_cap = build_ipv4_udp_packet(
+            [10, 0, 0, 1],
+            [10, 0, 0, 2],
+            1234,
+            514,
+            b"long message payload",
+        );
+        trunc_cap.truncate(30); // truncates payload
+        let d = decode_datagram(Datalink::Raw, &trunc_cap).expect("truncated capture handled");
+        assert_eq!(d.payload, &trunc_cap[28..]);
+    }
+
+    #[test]
+    fn test_ipv6_extension_headers() {
+        let payload = b"<13>IPv6 with extension headers";
+        let src = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+        let dst = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2];
+
+        // 1. Hop-by-Hop (0) + Routing (43) + Destination Options (60)
+        let mut pkt = Vec::new();
+        // IPv6 Header: ver=6, next_hdr=0 (hop-by-hop)
+        pkt.push(0x60);
+        pkt.extend_from_slice(&[0x00, 0x00, 0x00]);
+        let total_ext_and_udp = 8 + 8 + 8 + 8 + payload.len();
+        pkt.extend_from_slice(&(total_ext_and_udp as u16).to_be_bytes());
+        pkt.push(0); // next_hdr = HopByHop
+        pkt.push(64); // hop limit
+        pkt.extend_from_slice(&src);
+        pkt.extend_from_slice(&dst);
+
+        // Hop-by-Hop: next_hdr=43 (Routing), len=0 (8 bytes)
+        pkt.push(43);
+        pkt.push(0);
+        pkt.extend_from_slice(&[0x00; 6]);
+
+        // Routing: next_hdr=60 (DestOpts), len=0 (8 bytes)
+        pkt.push(60);
+        pkt.push(0);
+        pkt.extend_from_slice(&[0x00; 6]);
+
+        // Destination Options: next_hdr=17 (UDP), len=0 (8 bytes)
+        pkt.push(17);
+        pkt.push(0);
+        pkt.extend_from_slice(&[0x00; 6]);
+
+        // UDP Header
+        let udp_len = (8 + payload.len()) as u16;
+        pkt.extend_from_slice(&1234u16.to_be_bytes());
+        pkt.extend_from_slice(&514u16.to_be_bytes());
+        pkt.extend_from_slice(&udp_len.to_be_bytes());
+        pkt.extend_from_slice(&[0x00, 0x00]);
+        pkt.extend_from_slice(payload);
+
+        let d = decode_datagram(Datalink::Raw, &pkt).expect("ext headers decode");
+        assert_eq!(d.payload, payload);
+
+        // 2. Fragment header with offset = 0
+        let mut frag_pkt = Vec::new();
+        frag_pkt.push(0x60);
+        frag_pkt.extend_from_slice(&[0x00, 0x00, 0x00]);
+        let frag_total = 8 + 8 + payload.len();
+        frag_pkt.extend_from_slice(&(frag_total as u16).to_be_bytes());
+        frag_pkt.push(44); // Fragment Header
+        frag_pkt.push(64);
+        frag_pkt.extend_from_slice(&src);
+        frag_pkt.extend_from_slice(&dst);
+
+        // Fragment Header: next_hdr=17, reserved=0, offset=0, ID=123
+        frag_pkt.push(17);
+        frag_pkt.push(0);
+        frag_pkt.extend_from_slice(&[0x00, 0x00]); // offset = 0
+        frag_pkt.extend_from_slice(&123u32.to_be_bytes());
+
+        // UDP Header
+        frag_pkt.extend_from_slice(&1234u16.to_be_bytes());
+        frag_pkt.extend_from_slice(&514u16.to_be_bytes());
+        frag_pkt.extend_from_slice(&udp_len.to_be_bytes());
+        frag_pkt.extend_from_slice(&[0x00, 0x00]);
+        frag_pkt.extend_from_slice(payload);
+
+        let d_frag = decode_datagram(Datalink::Raw, &frag_pkt).expect("frag offset 0 decode");
+        assert_eq!(d_frag.payload, payload);
+
+        // Fragment header with offset != 0 (should be rejected)
+        let mut frag_bad = frag_pkt.clone();
+        frag_bad[42] = 0x08; // frag offset > 0
+        assert!(decode_datagram(Datalink::Raw, &frag_bad).is_none());
+
+        // 3. Authentication Header (51)
+        let mut ah_pkt = Vec::new();
+        ah_pkt.push(0x60);
+        ah_pkt.extend_from_slice(&[0x00, 0x00, 0x00]);
+        let ah_total = 12 + 8 + payload.len();
+        ah_pkt.extend_from_slice(&(ah_total as u16).to_be_bytes());
+        ah_pkt.push(51); // AH
+        ah_pkt.push(64);
+        ah_pkt.extend_from_slice(&src);
+        ah_pkt.extend_from_slice(&dst);
+
+        // AH: next_hdr=17, payload_len=1 ((1+2)*4 = 12 bytes)
+        ah_pkt.push(17);
+        ah_pkt.push(1);
+        ah_pkt.extend_from_slice(&[0x00; 10]);
+
+        // UDP Header
+        ah_pkt.extend_from_slice(&1234u16.to_be_bytes());
+        ah_pkt.extend_from_slice(&514u16.to_be_bytes());
+        ah_pkt.extend_from_slice(&udp_len.to_be_bytes());
+        ah_pkt.extend_from_slice(&[0x00, 0x00]);
+        ah_pkt.extend_from_slice(payload);
+
+        let d_ah = decode_datagram(Datalink::Raw, &ah_pkt).expect("ah decode");
+        assert_eq!(d_ah.payload, payload);
+
+        // 4. Unknown next header rejected
+        let mut unk_pkt = ah_pkt.clone();
+        unk_pkt[6] = 250; // unknown protocol
+        assert!(decode_datagram(Datalink::Raw, &unk_pkt).is_none());
+
+        // 5. Truncated extension headers
+        // Truncated Fragment header (< 8 bytes)
+        let trunc_frag = frag_pkt[..45].to_vec();
+        assert!(decode_datagram(Datalink::Raw, &trunc_frag).is_none());
+
+        // Truncated Hop-by-hop (< 2 bytes)
+        let trunc_hbh1 = pkt[..41].to_vec();
+        assert!(decode_datagram(Datalink::Raw, &trunc_hbh1).is_none());
+
+        // Truncated Hop-by-hop (< ext_len)
+        let trunc_hbh2 = pkt[..44].to_vec();
+        assert!(decode_datagram(Datalink::Raw, &trunc_hbh2).is_none());
+
+        // Truncated AH (< 2 bytes)
+        let trunc_ah1 = ah_pkt[..41].to_vec();
+        assert!(decode_datagram(Datalink::Raw, &trunc_ah1).is_none());
+
+        // Truncated AH (< ext_len)
+        let trunc_ah2 = ah_pkt[..46].to_vec();
+        assert!(decode_datagram(Datalink::Raw, &trunc_ah2).is_none());
+    }
+
+    #[test]
+    fn test_decode_additional_edge_cases() {
+        // Truncated VLAN header (0x8100 with fewer than 4 remaining bytes)
+        let trunc_vlan = vec![
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0x81, 0x00,
+            0x01,
+        ];
+        assert!(decode_datagram(Datalink::Ethernet, &trunc_vlan).is_none());
+
+        // NullLoop fallback with unrecognized IP version
+        let null_loop_bad = vec![0x00, 0x00, 0x00, 0x99, 0x30, 0x00];
+        assert!(decode_datagram(Datalink::NullLoop, &null_loop_bad).is_none());
+
+        // IPv4 with wrong version nibble
+        let bad_v4_ver = vec![0x55; 20];
+        assert!(decode_datagram(Datalink::Raw, &bad_v4_ver).is_none());
+
+        // IPv6 < 40 bytes
+        let short_v6 = vec![0x60; 30];
+        assert!(decode_datagram(Datalink::Raw, &short_v6).is_none());
+
+        // IPv6 with wrong version nibble
+        let bad_v6_ver = vec![0x40; 40];
+        assert!(decode_datagram(Datalink::Raw, &bad_v6_ver).is_none());
     }
 }

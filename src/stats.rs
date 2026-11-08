@@ -440,4 +440,15 @@ mod tests {
         assert_eq!(ks2.dropped, 1);
         assert_eq!(ks2.if_dropped, 0);
     }
+
+    #[test]
+    fn test_truncate_utf8_multibyte() {
+        // "hello🦀world" -> crab is 4 bytes at indices 5..9
+        let s = "hello🦀world";
+        assert_eq!(truncate_utf8(s, 5), "hello");
+        assert_eq!(truncate_utf8(s, 6), "hello");
+        assert_eq!(truncate_utf8(s, 7), "hello");
+        assert_eq!(truncate_utf8(s, 8), "hello");
+        assert_eq!(truncate_utf8(s, 9), "hello🦀");
+    }
 }

@@ -48,3 +48,43 @@ impl<T: PacketSource + ?Sized> PacketSource for Box<T> {
         (**self).stats()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct MinimalSource {
+        returned: bool,
+    }
+
+    impl PacketSource for MinimalSource {
+        fn next_packet(&mut self) -> Result<Option<PacketData>, SnifferError> {
+            if !self.returned {
+                self.returned = true;
+                Ok(Some(PacketData {
+                    data: vec![1, 2, 3],
+                }))
+            } else {
+                Ok(None)
+            }
+        }
+    }
+
+    #[test]
+    fn test_packet_source_defaults_and_box() {
+        let mut source: Box<dyn PacketSource> = Box::new(MinimalSource { returned: false });
+        assert_eq!(source.datalink(), Datalink::Raw);
+        assert_eq!(source.get_datalink(), "Raw");
+        assert_eq!(source.stats(), None);
+
+        let p1 = source.next_packet().unwrap();
+        assert_eq!(
+            p1,
+            Some(PacketData {
+                data: vec![1, 2, 3]
+            })
+        );
+        let p2 = source.next_packet().unwrap();
+        assert_eq!(p2, None);
+    }
+}

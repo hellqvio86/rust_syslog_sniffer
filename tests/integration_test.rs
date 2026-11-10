@@ -60,6 +60,8 @@ fn test_cli_binary_execution() {
         .expect("run binary with pcap");
     assert!(out514.status.success());
     let stdout514 = String::from_utf8_lossy(&out514.stdout);
+    let stderr514 = String::from_utf8_lossy(&out514.stderr);
+    assert!(stderr514.contains("The --interval argument is deprecated"));
     let summary514: JsonSummary = serde_json::from_str(&stdout514).expect("parse stdout json");
     assert!(summary514.hosts.contains_key("host514"));
     assert!(!summary514.hosts.contains_key("dnsdecoy"));

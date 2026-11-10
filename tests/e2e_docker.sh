@@ -79,7 +79,7 @@ cat "$OUTPUT_FILE"
 if grep -q "\"interval_seconds\": 3" "$OUTPUT_FILE" && grep -q "\"mymachine.example.com\"" "$OUTPUT_FILE"; then
     echo "SUCCESS: JSON Summary found and message captured!"
 
-    if grep -qE "ERROR|WARN|panicked" "$OUTPUT_FILE"; then
+    if grep -qE "ERROR|panicked" "$OUTPUT_FILE"; then
         echo "FAILURE: Error or panic found in output."
         exit 1
     else

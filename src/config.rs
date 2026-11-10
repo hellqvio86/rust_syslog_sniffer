@@ -180,7 +180,7 @@ pub fn determine_log_level(debug: bool, env_rust_log_is_set: bool) -> Option<log
     if debug {
         Some(log::LevelFilter::Debug)
     } else if !env_rust_log_is_set {
-        Some(log::LevelFilter::Error)
+        Some(log::LevelFilter::Warn)
     } else {
         None
     }
@@ -220,7 +220,7 @@ mod tests {
     fn test_log_level_default() {
         assert_eq!(
             determine_log_level(false, false),
-            Some(log::LevelFilter::Error)
+            Some(log::LevelFilter::Warn)
         );
     }
 

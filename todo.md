@@ -70,7 +70,7 @@
   - **Fix:** return a distinguishable result (e.g. `SnifferError::OutputClosed`), stop the loop, skip the final summary, and have `main` exit `0` quietly (or 141 if you prefer SIGPIPE semantics; pick 0 per Decisions).
   - **Acceptance:** unit test with a writer that returns `BrokenPipe` in periodic mode with `duration=None` returns promptly; e2e `| head -n1` exits within one `--frequency`.
 
-- [ ] **P1-3 Default log level hides every `warn!`** **(verified)**
+- [x] **P1-3 Default log level hides every `warn!`** **(verified)**
   - **Where:** `src/config.rs` `determine_log_level` (default `Error`), `src/main.rs`, `src/app.rs`.
   - **Problem:** capture-error warnings (rate-limited, the P0-3 mechanism from round 1), the `--interval` deprecation warning and the "could not register signal handler" warning are all `warn!`, so at the default level they are never printed. Confirmed: `syslog_sniffer -i lo --interval 1` prints nothing.
   - **Fix:** default to `Warn`; `--debug` → `Debug`; honour `RUST_LOG` as today. Update the e2e "quiet" checks (grep for `ERROR|panicked`, allow `WARN` only where expected).

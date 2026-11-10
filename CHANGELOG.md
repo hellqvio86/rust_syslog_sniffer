@@ -36,7 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Fatal offline pcap read errors now exit immediately without retrying.
 - Kernel capture statistics calculation uses wrapping arithmetic on 32-bit counter rollover.
-- MSRV corrected and enforced at Rust 1.85.0.
+- MSRV corrected and enforced at Rust 1.88.0.
 
 ## [0.1.41] - 2026-11-08
 

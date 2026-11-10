@@ -12,10 +12,10 @@
 2. **build-and-test** - Core Rust validation
    - Code formatting, clippy linter, and documentation check via `make lint`
    - Unit tests (`cargo test --locked`)
-   - Root live UDP capture tests (`sudo -E cargo test --locked -- --ignored`)
+   - Root live UDP capture tests (`sudo env "PATH=$PATH" ... cargo test --locked -- --ignored`)
    - Dependency security audit (`cargo audit` via `rustsec/audit-check`)
 3. **msrv** - Minimum Supported Rust Version check
-   - Validates build compatibility against declared MSRV (Rust 1.85.0)
+   - Validates build compatibility against declared MSRV (Rust 1.88.0)
 4. **docker-build-and-test** - Multi-arch Docker validation
    - Multi-platform Buildx build for `linux/amd64`, `linux/arm64`, and `linux/arm/v7`
    - QEMU smoke tests on every platform (`--version` and `--read-pcap` fixture replay)

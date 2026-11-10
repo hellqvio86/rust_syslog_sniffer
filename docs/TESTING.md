@@ -86,10 +86,10 @@ All tests run automatically in CI on every push and pull request.
 1. **build-and-test** job:
    - Formatting, Clippy, and Documentation via `make lint`
    - Unit tests (`cargo test --locked`)
-   - Root live capture loopback test (`sudo -E cargo test --locked -- --ignored`)
+   - Root live capture loopback test (`sudo env "PATH=$PATH" ... cargo test --locked -- --ignored`)
    - Security audit (`rustsec/audit-check`)
 2. **msrv** job:
-   - Validates Rust 1.85 compatibility (`cargo check --locked --all-targets`)
+   - Validates Rust 1.88 compatibility (`cargo check --locked --all-targets`)
 3. **docker-build-and-test** job:
    - Build multi-platform Docker image (`linux/amd64`, `linux/arm64`, `linux/arm/v7`)
    - QEMU smoke tests (`--version` and `--read-pcap` replay) on each architecture

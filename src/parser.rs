@@ -14,14 +14,17 @@ const MONTHS: [&[u8]; 12] = [
 /// Returns `None` only for empty payloads or payloads containing only whitespace/NULs.
 /// Non-UTF-8 payloads are decoded lossily with `is_non_utf8 = true`.
 pub fn parse_syslog_packet(packet: &[u8]) -> Option<SyslogPacket> {
-    if packet.is_empty() {
+    if packet.is_empty() || packet.iter().all(|&b| b.is_ascii_whitespace() || b == 0) {
         return None;
     }
 
     let is_non_utf8 = std::str::from_utf8(packet).is_err();
     let lossy = String::from_utf8_lossy(packet);
     let trimmed = lossy.trim_end_matches(['\r', '\n', '\0']);
-    if trimmed.is_empty() {
+    if trimmed
+        .trim_matches(|c: char| c.is_whitespace() || c == '\0')
+        .is_empty()
+    {
         return None;
     }
 
@@ -215,6 +218,7 @@ mod tests {
     fn test_empty_payload() {
         assert!(parse_syslog_packet(b"").is_none());
         assert!(parse_syslog_packet(b"\r\n\0").is_none());
+        assert!(parse_syslog_packet(b"   \r\n\0  ").is_none());
     }
 
     #[test]

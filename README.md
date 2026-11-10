@@ -163,7 +163,7 @@ Options:
 ## Limitations
 
 - **UDP Only**: Listens to UDP syslog traffic (RFC 3164 and RFC 5424). TCP/TLS syslog (RFC 5425 / RFC 6587) and RELP are not captured.
-- **IP Fragmentation**: Only initial UDP packet fragments carrying the UDP header are parsed; subsequent non-initial fragments do not carry UDP port headers and are ignored.
+- **IP Fragmentation**: Initial UDP fragments carrying the UDP header are counted in `fragmented_first` and skipped (as their payload is incomplete); subsequent non-initial fragments carry no UDP port headers and are counted in `decode_unsupported`.
 - **Self-Reported Hostnames & Table Evasion**: Hostnames parsed from syslog payloads are self-reported by clients and can be spoofed. An attacker generating traffic with arbitrary hostnames could attempt to fill the host table up to `--max-hosts` to obscure legitimate systems in the overflow counts. To mitigate this evasion risk:
   - An independent, bounded per-source-IP table (`senders: {ip: count}`) tracks sending hosts up to `--max-sources` (default: 10,000) regardless of `--key-by`.
   - The `sources` array records actual observed IP addresses for each host entry.

@@ -105,7 +105,7 @@
   - **Problem:** on e.g. an 802.11 or PPP interface every frame becomes a `decode_error` and the run "succeeds" with an empty/odd summary.
   - **Fix:** `PcapCapture::new` and `FileCapture::new` return `SnifferError::UnsupportedDatalink(i32)` (message lists supported types) instead of constructing a source. Add a test with a crafted pcap using linktype 105.
 
-- [ ] **P1-9 Count every dropped packet; no silent paths**
+- [x] **P1-9 Count every dropped packet; no silent paths**
   - **Where:** `src/app.rs` — `if let Some(syslog) = parse_syslog_packet(...)` has no `else`.
   - **Problem:** empty/whitespace/NUL-only payloads vanish uncounted. `decode_errors` conflates "not UDP/IPv4/6", "truncated", "unsupported datalink".
   - **Fix:** add `parse_errors` (empty payloads), and split `decode_errors` into `decode_truncated` / `decode_unsupported` (keep `decode_errors` as the sum). Count IPv4 first-fragments (MF set, offset 0: currently decoded as if complete with a truncated payload) in `fragmented_first`.

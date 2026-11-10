@@ -96,6 +96,14 @@ pub struct JsonSummary {
     #[serde(skip_serializing_if = "is_zero", default)]
     pub decode_errors: u64,
     #[serde(skip_serializing_if = "is_zero", default)]
+    pub decode_truncated: u64,
+    #[serde(skip_serializing_if = "is_zero", default)]
+    pub decode_unsupported: u64,
+    #[serde(skip_serializing_if = "is_zero", default)]
+    pub fragmented_first: u64,
+    #[serde(skip_serializing_if = "is_zero", default)]
+    pub parse_errors: u64,
+    #[serde(skip_serializing_if = "is_zero", default)]
     pub non_matching_port: u64,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub capture_stats: Option<KernelStats>,
@@ -124,6 +132,10 @@ pub struct StatsTracker {
     no_hostname: u64,
     non_utf8: u64,
     decode_errors: u64,
+    decode_truncated: u64,
+    decode_unsupported: u64,
+    fragmented_first: u64,
+    parse_errors: u64,
     non_matching_port: u64,
     capture_stats: Option<KernelStats>,
     last_cumulative_stats: Option<CaptureStats>,
@@ -152,6 +164,10 @@ impl StatsTracker {
             no_hostname: 0,
             non_utf8: 0,
             decode_errors: 0,
+            decode_truncated: 0,
+            decode_unsupported: 0,
+            fragmented_first: 0,
+            parse_errors: 0,
             non_matching_port: 0,
             capture_stats: None,
             last_cumulative_stats: None,
@@ -168,6 +184,24 @@ impl StatsTracker {
 
     pub fn record_decode_error(&mut self) {
         self.decode_errors += 1;
+    }
+
+    pub fn record_decode_truncated(&mut self) {
+        self.decode_truncated += 1;
+        self.decode_errors += 1;
+    }
+
+    pub fn record_decode_unsupported(&mut self) {
+        self.decode_unsupported += 1;
+        self.decode_errors += 1;
+    }
+
+    pub fn record_fragmented_first(&mut self) {
+        self.fragmented_first += 1;
+    }
+
+    pub fn record_parse_error(&mut self) {
+        self.parse_errors += 1;
     }
 
     pub fn record_non_matching_port(&mut self) {
@@ -273,6 +307,10 @@ impl StatsTracker {
             && self.no_hostname == 0
             && self.non_utf8 == 0
             && self.decode_errors == 0
+            && self.decode_truncated == 0
+            && self.decode_unsupported == 0
+            && self.fragmented_first == 0
+            && self.parse_errors == 0
             && self.non_matching_port == 0
     }
 
@@ -287,6 +325,10 @@ impl StatsTracker {
         self.no_hostname = 0;
         self.non_utf8 = 0;
         self.decode_errors = 0;
+        self.decode_truncated = 0;
+        self.decode_unsupported = 0;
+        self.fragmented_first = 0;
+        self.parse_errors = 0;
         self.non_matching_port = 0;
         self.capture_stats = None;
     }
@@ -333,6 +375,10 @@ impl StatsTracker {
             no_hostname: self.no_hostname,
             non_utf8: self.non_utf8,
             decode_errors: self.decode_errors,
+            decode_truncated: self.decode_truncated,
+            decode_unsupported: self.decode_unsupported,
+            fragmented_first: self.fragmented_first,
+            parse_errors: self.parse_errors,
             non_matching_port: self.non_matching_port,
             capture_stats: self.capture_stats.clone(),
         }

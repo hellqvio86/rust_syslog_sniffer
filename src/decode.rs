@@ -11,6 +11,14 @@ pub enum Datalink {
     Unsupported(i32),
 }
 
+/// Errors that can occur during datagram decoding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DecodeError {
+    Truncated,
+    Unsupported,
+    FragmentedFirst,
+}
+
 impl Datalink {
     pub fn from_pcap_linktype(linktype: i32) -> Self {
         match linktype {
@@ -36,18 +44,20 @@ pub struct Datagram<'a> {
 
 /// Decodes a raw frame from a given datalink into a UDP datagram.
 ///
-/// Returns `None` if the frame is not a valid UDP datagram, is truncated,
-/// is an unsupported protocol or non-first IP fragment, or has an unsupported datalink.
-pub fn decode_datagram(datalink: Datalink, frame: &[u8]) -> Option<Datagram<'_>> {
+/// Returns `Err(DecodeError)` if the frame is truncated, an unsupported protocol,
+/// non-first fragment, IPv4/IPv6 first fragment, or has an unsupported datalink.
+pub fn decode_datagram(datalink: Datalink, frame: &[u8]) -> Result<Datagram<'_>, DecodeError> {
     let (net_protocol, ip_slice) = decode_link_layer(datalink, frame)?;
     decode_ip_layer(net_protocol, ip_slice)
 }
 
-fn decode_link_layer(datalink: Datalink, frame: &[u8]) -> Option<(u16, &[u8])> {
+type LinkLayerResult<'a> = Result<(u16, &'a [u8]), DecodeError>;
+
+fn decode_link_layer(datalink: Datalink, frame: &[u8]) -> LinkLayerResult<'_> {
     match datalink {
         Datalink::Ethernet => {
             if frame.len() < 14 {
-                return None;
+                return Err(DecodeError::Truncated);
             }
             let mut offset = 12;
             let mut ethertype = u16::from_be_bytes([frame[offset], frame[offset + 1]]);
@@ -56,35 +66,35 @@ fn decode_link_layer(datalink: Datalink, frame: &[u8]) -> Option<(u16, &[u8])> {
             // Handle 802.1Q (0x8100), 802.1ad (0x88A8), or 0x9100 VLAN tags
             while ethertype == 0x8100 || ethertype == 0x88A8 || ethertype == 0x9100 {
                 if frame.len() < offset + 4 {
-                    return None;
+                    return Err(DecodeError::Truncated);
                 }
                 offset += 2; // skip TCI
                 ethertype = u16::from_be_bytes([frame[offset], frame[offset + 1]]);
                 offset += 2;
             }
 
-            Some((ethertype, &frame[offset..]))
+            Ok((ethertype, &frame[offset..]))
         }
         Datalink::LinuxSll => {
             // Linux Cooked Capture v1 (16 bytes)
             if frame.len() < 16 {
-                return None;
+                return Err(DecodeError::Truncated);
             }
             let protocol = u16::from_be_bytes([frame[14], frame[15]]);
-            Some((protocol, &frame[16..]))
+            Ok((protocol, &frame[16..]))
         }
         Datalink::LinuxSll2 => {
             // Linux Cooked Capture v2 (20 bytes, protocol at 0..2)
             if frame.len() < 20 {
-                return None;
+                return Err(DecodeError::Truncated);
             }
             let protocol = u16::from_be_bytes([frame[0], frame[1]]);
-            Some((protocol, &frame[20..]))
+            Ok((protocol, &frame[20..]))
         }
         Datalink::NullLoop => {
             // BSD loopback header (4 bytes address family)
             if frame.len() < 4 {
-                return None;
+                return Err(DecodeError::Truncated);
             }
             let af_host = u32::from_ne_bytes([frame[0], frame[1], frame[2], frame[3]]);
             let af_be = u32::from_be_bytes([frame[0], frame[1], frame[2], frame[3]]);
@@ -107,65 +117,69 @@ fn decode_link_layer(datalink: Datalink, frame: &[u8]) -> Option<(u16, &[u8])> {
                     match frame[4] >> 4 {
                         4 => 0x0800,
                         6 => 0x86DD,
-                        _ => return None,
+                        _ => return Err(DecodeError::Unsupported),
                     }
                 } else {
-                    return None;
+                    return Err(DecodeError::Truncated);
                 }
             };
-            Some((proto, &frame[4..]))
+            Ok((proto, &frame[4..]))
         }
         Datalink::Raw => {
             if frame.is_empty() {
-                return None;
+                return Err(DecodeError::Truncated);
             }
             let proto = match frame[0] >> 4 {
                 4 => 0x0800,
                 6 => 0x86DD,
-                _ => return None,
+                _ => return Err(DecodeError::Unsupported),
             };
-            Some((proto, frame))
+            Ok((proto, frame))
         }
-        Datalink::Unsupported(_) => None,
+        Datalink::Unsupported(_) => Err(DecodeError::Unsupported),
     }
 }
 
-fn decode_ip_layer(protocol: u16, slice: &[u8]) -> Option<Datagram<'_>> {
+fn decode_ip_layer(protocol: u16, slice: &[u8]) -> Result<Datagram<'_>, DecodeError> {
     match protocol {
         0x0800 => decode_ipv4(slice),
         0x86DD => decode_ipv6(slice),
-        _ => None,
+        _ => Err(DecodeError::Unsupported),
     }
 }
 
-fn decode_ipv4(slice: &[u8]) -> Option<Datagram<'_>> {
+fn decode_ipv4(slice: &[u8]) -> Result<Datagram<'_>, DecodeError> {
     if slice.len() < 20 {
-        return None;
+        return Err(DecodeError::Truncated);
     }
     if (slice[0] >> 4) != 4 {
-        return None;
+        return Err(DecodeError::Unsupported);
     }
     let ihl = ((slice[0] & 0x0F) * 4) as usize;
     if ihl < 20 || slice.len() < ihl {
-        return None;
+        return Err(DecodeError::Truncated);
     }
 
     let total_len = u16::from_be_bytes([slice[2], slice[3]]) as usize;
     if total_len < ihl {
-        return None;
+        return Err(DecodeError::Truncated);
     }
     let actual_ip_len = std::cmp::min(total_len, slice.len());
 
-    // Check fragment offset (drop non-first fragments)
+    // Check fragment offset (drop non-first fragments) and More Fragments (MF)
     let frag_field = u16::from_be_bytes([slice[6], slice[7]]);
     let frag_offset = frag_field & 0x1FFF;
+    let mf_set = (frag_field & 0x2000) != 0;
     if frag_offset != 0 {
-        return None;
+        return Err(DecodeError::Unsupported);
+    }
+    if mf_set && frag_offset == 0 {
+        return Err(DecodeError::FragmentedFirst);
     }
 
     // Protocol check: 17 for UDP
     if slice[9] != 17 {
-        return None;
+        return Err(DecodeError::Unsupported);
     }
 
     let src_ip = IpAddr::V4(Ipv4Addr::new(slice[12], slice[13], slice[14], slice[15]));
@@ -175,12 +189,12 @@ fn decode_ipv4(slice: &[u8]) -> Option<Datagram<'_>> {
     decode_udp(src_ip, dst_ip, udp_slice)
 }
 
-fn decode_ipv6(slice: &[u8]) -> Option<Datagram<'_>> {
+fn decode_ipv6(slice: &[u8]) -> Result<Datagram<'_>, DecodeError> {
     if slice.len() < 40 {
-        return None;
+        return Err(DecodeError::Truncated);
     }
     if (slice[0] >> 4) != 6 {
-        return None;
+        return Err(DecodeError::Unsupported);
     }
 
     let payload_len = u16::from_be_bytes([slice[4], slice[5]]) as usize;
@@ -202,41 +216,45 @@ fn decode_ipv6(slice: &[u8]) -> Option<Datagram<'_>> {
             44 => {
                 // Fragment Header (8 bytes)
                 if offset + 8 > total_v6_len {
-                    return None;
+                    return Err(DecodeError::Truncated);
                 }
                 next_hdr = slice[offset];
                 let frag_offset =
                     (u16::from_be_bytes([slice[offset + 2], slice[offset + 3]]) >> 3) & 0x1FFF;
+                let m_flag = slice[offset + 3] & 1;
                 if frag_offset != 0 {
-                    return None;
+                    return Err(DecodeError::Unsupported);
+                }
+                if m_flag != 0 && frag_offset == 0 {
+                    return Err(DecodeError::FragmentedFirst);
                 }
                 offset += 8;
             }
             0 | 43 | 60 => {
                 // Hop-by-Hop (0), Routing (43), Destination Options (60)
                 if offset + 2 > total_v6_len {
-                    return None;
+                    return Err(DecodeError::Truncated);
                 }
                 next_hdr = slice[offset];
                 let ext_len = (slice[offset + 1] as usize + 1) * 8;
                 if offset + ext_len > total_v6_len {
-                    return None;
+                    return Err(DecodeError::Truncated);
                 }
                 offset += ext_len;
             }
             51 => {
                 // Authentication Header (AH)
                 if offset + 2 > total_v6_len {
-                    return None;
+                    return Err(DecodeError::Truncated);
                 }
                 next_hdr = slice[offset];
                 let ext_len = (slice[offset + 1] as usize + 2) * 4;
                 if offset + ext_len > total_v6_len {
-                    return None;
+                    return Err(DecodeError::Truncated);
                 }
                 offset += ext_len;
             }
-            _ => return None,
+            _ => return Err(DecodeError::Unsupported),
         }
     }
 
@@ -244,15 +262,19 @@ fn decode_ipv6(slice: &[u8]) -> Option<Datagram<'_>> {
     decode_udp(src_ip, dst_ip, udp_slice)
 }
 
-fn decode_udp<'a>(src_ip: IpAddr, dst_ip: IpAddr, udp_slice: &'a [u8]) -> Option<Datagram<'a>> {
+fn decode_udp<'a>(
+    src_ip: IpAddr,
+    dst_ip: IpAddr,
+    udp_slice: &'a [u8],
+) -> Result<Datagram<'a>, DecodeError> {
     if udp_slice.len() < 8 {
-        return None;
+        return Err(DecodeError::Truncated);
     }
     let src_port = u16::from_be_bytes([udp_slice[0], udp_slice[1]]);
     let dst_port = u16::from_be_bytes([udp_slice[2], udp_slice[3]]);
     let udp_len = u16::from_be_bytes([udp_slice[4], udp_slice[5]]) as usize;
     if udp_len < 8 {
-        return None;
+        return Err(DecodeError::Truncated);
     }
     let payload_len = udp_len - 8;
 
@@ -263,7 +285,7 @@ fn decode_udp<'a>(src_ip: IpAddr, dst_ip: IpAddr, udp_slice: &'a [u8]) -> Option
         &udp_slice[8..8 + payload_len]
     };
 
-    Some(Datagram {
+    Ok(Datagram {
         src_ip,
         dst_ip,
         src_port,
@@ -497,7 +519,7 @@ mod tests {
         ip_pkt[6] = 0x00;
         ip_pkt[7] = 100;
 
-        assert!(decode_datagram(Datalink::Raw, &ip_pkt).is_none());
+        assert!(decode_datagram(Datalink::Raw, &ip_pkt).is_err());
     }
 
     #[test]
@@ -505,21 +527,54 @@ mod tests {
         let mut ip_pkt = build_ipv4_udp_packet([10, 0, 0, 1], [10, 0, 0, 2], 1234, 514, b"test");
         ip_pkt[9] = 6; // TCP instead of 17 (UDP)
 
-        assert!(decode_datagram(Datalink::Raw, &ip_pkt).is_none());
+        assert_eq!(
+            decode_datagram(Datalink::Raw, &ip_pkt),
+            Err(DecodeError::Unsupported)
+        );
     }
 
     #[test]
     fn test_truncated_garbage_frames() {
-        assert!(decode_datagram(Datalink::Ethernet, &[]).is_none());
-        assert!(decode_datagram(Datalink::Ethernet, &[0x00; 13]).is_none());
-        assert!(decode_datagram(Datalink::Ethernet, &[0xFF; 25]).is_none());
-        assert!(decode_datagram(Datalink::LinuxSll, &[0x00; 15]).is_none());
-        assert!(decode_datagram(Datalink::LinuxSll2, &[0x00; 19]).is_none());
-        assert!(decode_datagram(Datalink::NullLoop, &[0x00; 3]).is_none());
-        assert!(decode_datagram(Datalink::NullLoop, &[0x99, 0x99, 0x99, 0x99]).is_none());
-        assert!(decode_datagram(Datalink::Raw, &[]).is_none());
-        assert!(decode_datagram(Datalink::Raw, &[0x10, 0x00]).is_none());
-        assert!(decode_datagram(Datalink::Unsupported(999), &[0x00; 50]).is_none());
+        assert_eq!(
+            decode_datagram(Datalink::Ethernet, &[]),
+            Err(DecodeError::Truncated)
+        );
+        assert_eq!(
+            decode_datagram(Datalink::Ethernet, &[0x00; 13]),
+            Err(DecodeError::Truncated)
+        );
+        assert_eq!(
+            decode_datagram(Datalink::Ethernet, &[0xFF; 25]),
+            Err(DecodeError::Unsupported)
+        );
+        assert_eq!(
+            decode_datagram(Datalink::LinuxSll, &[0x00; 15]),
+            Err(DecodeError::Truncated)
+        );
+        assert_eq!(
+            decode_datagram(Datalink::LinuxSll2, &[0x00; 19]),
+            Err(DecodeError::Truncated)
+        );
+        assert_eq!(
+            decode_datagram(Datalink::NullLoop, &[0x00; 3]),
+            Err(DecodeError::Truncated)
+        );
+        assert_eq!(
+            decode_datagram(Datalink::NullLoop, &[0x99, 0x99, 0x99, 0x99]),
+            Err(DecodeError::Truncated)
+        );
+        assert_eq!(
+            decode_datagram(Datalink::Raw, &[]),
+            Err(DecodeError::Truncated)
+        );
+        assert_eq!(
+            decode_datagram(Datalink::Raw, &[0x10, 0x00]),
+            Err(DecodeError::Unsupported)
+        );
+        assert_eq!(
+            decode_datagram(Datalink::Unsupported(999), &[0x00; 50]),
+            Err(DecodeError::Unsupported)
+        );
     }
 
     #[test]
@@ -576,37 +631,65 @@ mod tests {
     #[test]
     fn test_ipv4_decode_edge_cases() {
         // Shorter than 20 bytes
-        assert!(decode_datagram(Datalink::Raw, &[0x45; 19]).is_none());
+        assert_eq!(
+            decode_datagram(Datalink::Raw, &[0x45; 19]),
+            Err(DecodeError::Truncated)
+        );
 
         // Version not 4
         let mut bad_ver = build_ipv4_udp_packet([10, 0, 0, 1], [10, 0, 0, 2], 1234, 514, b"test");
         bad_ver[0] = 0x55;
-        assert!(decode_datagram(Datalink::Raw, &bad_ver).is_none());
+        assert_eq!(
+            decode_datagram(Datalink::Raw, &bad_ver),
+            Err(DecodeError::Unsupported)
+        );
 
         // IHL < 20 (e.g. 0x44 -> IHL=16)
         let mut bad_ihl = bad_ver.clone();
         bad_ihl[0] = 0x44;
-        assert!(decode_datagram(Datalink::Raw, &bad_ihl).is_none());
+        assert_eq!(
+            decode_datagram(Datalink::Raw, &bad_ihl),
+            Err(DecodeError::Truncated)
+        );
 
         // total_length < IHL
         let mut bad_tot = bad_ver.clone();
         bad_tot[0] = 0x45;
         bad_tot[2] = 0;
         bad_tot[3] = 10;
-        assert!(decode_datagram(Datalink::Raw, &bad_tot).is_none());
+        assert_eq!(
+            decode_datagram(Datalink::Raw, &bad_tot),
+            Err(DecodeError::Truncated)
+        );
 
         // UDP slice < 8
         let mut truncated_udp = bad_ver.clone();
         truncated_udp[0] = 0x45;
         truncated_udp.truncate(24); // only 4 bytes of UDP
-        assert!(decode_datagram(Datalink::Raw, &truncated_udp).is_none());
+        assert_eq!(
+            decode_datagram(Datalink::Raw, &truncated_udp),
+            Err(DecodeError::Truncated)
+        );
 
         // UDP len < 8
         let mut bad_udp_len =
             build_ipv4_udp_packet([10, 0, 0, 1], [10, 0, 0, 2], 1234, 514, b"msg");
         bad_udp_len[24] = 0;
         bad_udp_len[25] = 4; // UDP len = 4 < 8
-        assert!(decode_datagram(Datalink::Raw, &bad_udp_len).is_none());
+        assert_eq!(
+            decode_datagram(Datalink::Raw, &bad_udp_len),
+            Err(DecodeError::Truncated)
+        );
+
+        // IPv4 First fragment: MF set (0x2000), offset = 0
+        let mut first_frag =
+            build_ipv4_udp_packet([10, 0, 0, 1], [10, 0, 0, 2], 1234, 514, b"fragment1");
+        first_frag[6] = 0x20; // MF flag set
+        first_frag[7] = 0x00; // offset = 0
+        assert_eq!(
+            decode_datagram(Datalink::Raw, &first_frag),
+            Err(DecodeError::FragmentedFirst)
+        );
 
         // Truncated capture: packet truncated so udp_slice is shorter than udp_len
         let mut trunc_cap = build_ipv4_udp_packet(
@@ -695,7 +778,10 @@ mod tests {
         // Fragment header with offset != 0 (should be rejected)
         let mut frag_bad = frag_pkt.clone();
         frag_bad[42] = 0x08; // frag offset > 0
-        assert!(decode_datagram(Datalink::Raw, &frag_bad).is_none());
+        assert_eq!(
+            decode_datagram(Datalink::Raw, &frag_bad),
+            Err(DecodeError::Unsupported)
+        );
 
         // 3. Authentication Header (51)
         let mut ah_pkt = Vec::new();
@@ -726,28 +812,46 @@ mod tests {
         // 4. Unknown next header rejected
         let mut unk_pkt = ah_pkt.clone();
         unk_pkt[6] = 250; // unknown protocol
-        assert!(decode_datagram(Datalink::Raw, &unk_pkt).is_none());
+        assert_eq!(
+            decode_datagram(Datalink::Raw, &unk_pkt),
+            Err(DecodeError::Unsupported)
+        );
 
         // 5. Truncated extension headers
         // Truncated Fragment header (< 8 bytes)
         let trunc_frag = frag_pkt[..45].to_vec();
-        assert!(decode_datagram(Datalink::Raw, &trunc_frag).is_none());
+        assert_eq!(
+            decode_datagram(Datalink::Raw, &trunc_frag),
+            Err(DecodeError::Truncated)
+        );
 
         // Truncated Hop-by-hop (< 2 bytes)
         let trunc_hbh1 = pkt[..41].to_vec();
-        assert!(decode_datagram(Datalink::Raw, &trunc_hbh1).is_none());
+        assert_eq!(
+            decode_datagram(Datalink::Raw, &trunc_hbh1),
+            Err(DecodeError::Truncated)
+        );
 
         // Truncated Hop-by-hop (< ext_len)
         let trunc_hbh2 = pkt[..44].to_vec();
-        assert!(decode_datagram(Datalink::Raw, &trunc_hbh2).is_none());
+        assert_eq!(
+            decode_datagram(Datalink::Raw, &trunc_hbh2),
+            Err(DecodeError::Truncated)
+        );
 
         // Truncated AH (< 2 bytes)
         let trunc_ah1 = ah_pkt[..41].to_vec();
-        assert!(decode_datagram(Datalink::Raw, &trunc_ah1).is_none());
+        assert_eq!(
+            decode_datagram(Datalink::Raw, &trunc_ah1),
+            Err(DecodeError::Truncated)
+        );
 
         // Truncated AH (< ext_len)
         let trunc_ah2 = ah_pkt[..46].to_vec();
-        assert!(decode_datagram(Datalink::Raw, &trunc_ah2).is_none());
+        assert_eq!(
+            decode_datagram(Datalink::Raw, &trunc_ah2),
+            Err(DecodeError::Truncated)
+        );
     }
 
     #[test]
@@ -757,11 +861,17 @@ mod tests {
             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0x81, 0x00,
             0x01,
         ];
-        assert!(decode_datagram(Datalink::Ethernet, &trunc_vlan).is_none());
+        assert_eq!(
+            decode_datagram(Datalink::Ethernet, &trunc_vlan),
+            Err(DecodeError::Truncated)
+        );
 
         // NullLoop fallback with unrecognized IP version
         let null_loop_bad = vec![0x00, 0x00, 0x00, 0x99, 0x30, 0x00];
-        assert!(decode_datagram(Datalink::NullLoop, &null_loop_bad).is_none());
+        assert_eq!(
+            decode_datagram(Datalink::NullLoop, &null_loop_bad),
+            Err(DecodeError::Unsupported)
+        );
 
         // Ethernet frame helper: 12 bytes MACs + 2 bytes ethertype + payload
         let make_eth = |ethertype: u16, payload: &[u8]| -> Vec<u8> {
@@ -773,14 +883,23 @@ mod tests {
 
         // IPv4 with wrong version nibble inside 0x0800 frame
         let bad_v4_ver = make_eth(0x0800, &[0x55; 20]);
-        assert!(decode_datagram(Datalink::Ethernet, &bad_v4_ver).is_none());
+        assert_eq!(
+            decode_datagram(Datalink::Ethernet, &bad_v4_ver),
+            Err(DecodeError::Unsupported)
+        );
 
         // IPv6 < 40 bytes inside 0x86DD frame
         let short_v6 = make_eth(0x86DD, &[0x60; 30]);
-        assert!(decode_datagram(Datalink::Ethernet, &short_v6).is_none());
+        assert_eq!(
+            decode_datagram(Datalink::Ethernet, &short_v6),
+            Err(DecodeError::Truncated)
+        );
 
         // IPv6 with wrong version nibble inside 0x86DD frame
         let bad_v6_ver = make_eth(0x86DD, &[0x40; 40]);
-        assert!(decode_datagram(Datalink::Ethernet, &bad_v6_ver).is_none());
+        assert_eq!(
+            decode_datagram(Datalink::Ethernet, &bad_v6_ver),
+            Err(DecodeError::Unsupported)
+        );
     }
 }

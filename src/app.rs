@@ -1,5 +1,5 @@
 use crate::config::{OutputFormat, RunOptions};
-use crate::decode::decode_datagram;
+use crate::decode::{decode_datagram, DecodeError};
 use crate::error::SnifferError;
 use crate::stats::{truncate_utf8, StatsTracker};
 use crate::{parse_syslog_packet, PacketSource};
@@ -102,28 +102,54 @@ pub fn run_sniffer_with_writer<S: PacketSource, W: Write>(
                 stats.record_packet_seen();
                 debug!("Received packet: len={}", packet.data.len());
 
-                if let Some(datagram) = decode_datagram(source.datalink(), &packet.data) {
-                    if datagram.dst_port != options.port {
-                        stats.record_non_matching_port();
-                        continue;
+                match decode_datagram(source.datalink(), &packet.data) {
+                    Ok(datagram) => {
+                        if datagram.dst_port != options.port {
+                            stats.record_non_matching_port();
+                            continue;
+                        }
+                        stats.record_datagram_decoded();
+                        let parsed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            parse_syslog_packet(datagram.payload)
+                        }));
+                        match parsed {
+                            Ok(Some(syslog)) => {
+                                stats.add_entry(
+                                    syslog.hostname.as_deref(),
+                                    datagram.src_ip,
+                                    &syslog.message,
+                                    syslog.is_non_utf8,
+                                );
+                                if sample_bytes > 0 {
+                                    debug!(
+                                        "Captured from {:?} (src_ip={}): {}",
+                                        syslog.hostname,
+                                        datagram.src_ip,
+                                        truncate_utf8(&syslog.message, sample_bytes.max(64))
+                                    );
+                                } else {
+                                    debug!(
+                                        "Captured from {:?} (src_ip={}): len={}",
+                                        syslog.hostname,
+                                        datagram.src_ip,
+                                        syslog.message.len()
+                                    );
+                                }
+                            }
+                            Ok(None) | Err(_) => {
+                                stats.record_parse_error();
+                            }
+                        }
                     }
-                    stats.record_datagram_decoded();
-                    if let Some(syslog) = parse_syslog_packet(datagram.payload) {
-                        stats.add_entry(
-                            syslog.hostname.as_deref(),
-                            datagram.src_ip,
-                            &syslog.message,
-                            syslog.is_non_utf8,
-                        );
-                        debug!(
-                            "Captured from {:?} (src_ip={}): {}",
-                            syslog.hostname,
-                            datagram.src_ip,
-                            truncate_utf8(&syslog.message, sample_bytes.max(64))
-                        );
+                    Err(DecodeError::Truncated) => {
+                        stats.record_decode_truncated();
                     }
-                } else {
-                    stats.record_decode_error();
+                    Err(DecodeError::Unsupported) => {
+                        stats.record_decode_unsupported();
+                    }
+                    Err(DecodeError::FragmentedFirst) => {
+                        stats.record_fragmented_first();
+                    }
                 }
             }
             Ok(None) => {
@@ -382,6 +408,76 @@ mod tests {
         let summary: JsonSummary = serde_json::from_str(&output).expect("valid json");
         assert_eq!(summary.packets_seen, 2);
         assert_eq!(summary.decode_errors, 2);
+        assert_eq!(summary.decode_truncated, 2);
+    }
+
+    #[test]
+    fn test_run_sniffer_dropped_packet_counters_for_each_path() {
+        let config = default_test_options();
+
+        // 1. Valid syslog packet
+        let valid_packet = create_test_frame(b"<13>Oct 11 22:14:15 mymachine ok");
+
+        // 2. Empty payload (parse error)
+        let empty_payload_packet = create_test_frame(b"");
+
+        // 3. Whitespace/NUL only payload (parse error)
+        let whitespace_packet = create_test_frame(b"   \r\n\0  ");
+
+        // 4. Truncated frame (decode truncated)
+        let truncated_packet = vec![0x00; 10];
+
+        // 5. Unsupported protocol, e.g. TCP instead of UDP (decode unsupported)
+        let mut tcp_packet = create_test_frame(b"<13>test");
+        tcp_packet[23] = 6; // IP protocol = 6 (TCP)
+
+        // 6. Fragmented first packet (IPv4 MF flag set at byte 20, offset = 0)
+        let mut first_frag = create_test_frame(b"<13>first fragment");
+        first_frag[20] = 0x20; // MF flag set
+        first_frag[21] = 0x00; // offset = 0
+
+        // 7. Non-matching port (destination port 9999 instead of 514)
+        let non_matching_packet = create_test_frame_with_port(9999, b"<13>wrong port");
+
+        let packets = vec![
+            Ok(Some(PacketData { data: valid_packet })),
+            Ok(Some(PacketData {
+                data: empty_payload_packet,
+            })),
+            Ok(Some(PacketData {
+                data: whitespace_packet,
+            })),
+            Ok(Some(PacketData {
+                data: truncated_packet,
+            })),
+            Ok(Some(PacketData { data: tcp_packet })),
+            Ok(Some(PacketData { data: first_frag })),
+            Ok(Some(PacketData {
+                data: non_matching_packet,
+            })),
+            Ok(None),
+        ];
+
+        let source = MockPacketSource::new(packets);
+        let mut buf = Cursor::new(Vec::new());
+        let shutdown = Arc::new(AtomicBool::new(false));
+
+        let res = run_sniffer_with_writer(config, source, &mut buf, shutdown);
+        assert!(res.is_ok());
+
+        let output = String::from_utf8(buf.into_inner()).unwrap();
+        let summary: JsonSummary = serde_json::from_str(&output).expect("valid json");
+
+        assert_eq!(summary.packets_seen, 7);
+        assert_eq!(summary.datagrams_decoded, 3); // valid + empty + whitespace
+        assert_eq!(summary.non_matching_port, 1);
+        assert_eq!(summary.parse_errors, 2); // empty + whitespace
+        assert_eq!(summary.decode_truncated, 1);
+        assert_eq!(summary.decode_unsupported, 1);
+        assert_eq!(summary.decode_errors, 2); // decode_truncated + decode_unsupported
+        assert_eq!(summary.fragmented_first, 1);
+        assert_eq!(summary.hosts.len(), 1);
+        assert_eq!(summary.hosts["mymachine"].count, 1);
     }
 
     #[test]

@@ -9,7 +9,7 @@ pub mod parser;
 pub mod stats;
 
 pub use config::{Config, KeyBy, OutputFormat, RunOptions};
-pub use decode::{decode_datagram, Datagram, Datalink};
+pub use decode::{decode_datagram, Datagram, Datalink, DecodeError};
 pub use error::SnifferError;
 pub use parser::{parse_syslog_packet, SyslogPacket};
 

@@ -64,7 +64,7 @@
     - Decide the gating (see P3-1): either push after a human publishes the draft (`on: release: types: [published]`) or document that images publish immediately.
   - **Acceptance:** a dry run on a fork (or `act`) with a new version tags, drafts and pushes exactly once; a re-run is a no-op; a re-run after a failed push completes the push.
 
-- [ ] **P1-2 Broken pipe does not stop the sniffer** **(verified)**
+- [x] **P1-2 Broken pipe does not stop the sniffer** **(verified)**
   - **Where:** `src/app.rs` `write_summary_json`.
   - **Problem:** `BrokenPipe` is swallowed (`return Ok(())`) and the loop keeps running. `syslog_sniffer --periodic --emit-empty --format ndjson | head -n 1` ran the full 8 s until `timeout` killed it; with no `--duration` it would run forever, capturing into a closed pipe.
   - **Fix:** return a distinguishable result (e.g. `SnifferError::OutputClosed`), stop the loop, skip the final summary, and have `main` exit `0` quietly (or 141 if you prefer SIGPIPE semantics; pick 0 per Decisions).

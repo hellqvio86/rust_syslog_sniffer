@@ -18,6 +18,8 @@ pub enum SnifferError {
     PersistentCapture(String),
     #[error("Capture error: {0}")]
     Capture(String),
+    #[error("Output stream closed (broken pipe)")]
+    OutputClosed,
     #[error("Unsupported datalink type: {0} (supported: Ethernet, Linux SLL, Linux SLL2, Raw IP, BSD Loopback)")]
     UnsupportedDatalink(i32),
 }

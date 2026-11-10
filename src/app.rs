@@ -190,7 +190,7 @@ pub fn run_sniffer_with_writer<S: PacketSource, W: Write>(
 fn write_summary_json<W: Write>(writer: &mut W, json: &str) -> Result<(), SnifferError> {
     if let Err(e) = writeln!(writer, "{}", json) {
         if e.kind() == std::io::ErrorKind::BrokenPipe {
-            return Ok(());
+            return Err(SnifferError::OutputClosed);
         }
         return Err(SnifferError::Capture(format!(
             "Failed to write output: {}",
@@ -484,14 +484,14 @@ mod tests {
         let config = default_test_config();
         let packet = create_test_frame(b"<13>test msg");
 
-        // BrokenPipe returns Ok(())
+        // BrokenPipe returns Err(SnifferError::OutputClosed)
         let source1 = MockPacketSource::new(vec![Ok(Some(PacketData {
             data: packet.clone(),
         }))]);
         let writer1 = FailingWriter { broken_pipe: true };
         let shutdown1 = Arc::new(AtomicBool::new(false));
         let res1 = run_sniffer_with_writer(config.clone(), source1, writer1, shutdown1);
-        assert!(res1.is_ok());
+        assert!(matches!(res1, Err(SnifferError::OutputClosed)));
 
         // Other write error returns Err(SnifferError::Capture)
         let source2 = MockPacketSource::new(vec![Ok(Some(PacketData { data: packet }))]);
@@ -499,6 +499,43 @@ mod tests {
         let shutdown2 = Arc::new(AtomicBool::new(false));
         let res2 = run_sniffer_with_writer(config, source2, writer2, shutdown2);
         assert!(res2.is_err());
+        assert!(!matches!(res2, Err(SnifferError::OutputClosed)));
+    }
+
+    #[test]
+    fn test_run_sniffer_broken_pipe_periodic_indefinite_returns_promptly() {
+        let mut config = default_test_config();
+        config.periodic = true;
+        config.frequency = 1;
+        config.duration = None; // Indefinite periodic
+        config.emit_empty = true;
+
+        let writer = FailingWriter { broken_pipe: true };
+        let shutdown = Arc::new(AtomicBool::new(false));
+
+        struct PeriodicSleepingSource {
+            called: usize,
+        }
+        impl PacketSource for PeriodicSleepingSource {
+            fn next_packet(&mut self) -> Result<Option<PacketData>, SnifferError> {
+                self.called += 1;
+                if self.called == 1 {
+                    std::thread::sleep(Duration::from_millis(1050));
+                }
+                Ok(None)
+            }
+            fn datalink(&self) -> Datalink {
+                Datalink::Ethernet
+            }
+        }
+
+        let res = run_sniffer_with_writer(
+            config,
+            PeriodicSleepingSource { called: 0 },
+            writer,
+            shutdown,
+        );
+        assert!(matches!(res, Err(SnifferError::OutputClosed)));
     }
 
     #[test]
@@ -590,7 +627,7 @@ mod tests {
             &mut failing_writer,
             Arc::new(AtomicBool::new(false)),
         );
-        assert!(res_broken.is_ok());
+        assert!(matches!(res_broken, Err(SnifferError::OutputClosed)));
     }
 
     #[test]

@@ -55,7 +55,9 @@ fn run_app(args: Config, shutdown: Arc<AtomicBool>) -> ExitCode {
         Ok(cap) => {
             let stdout = std::io::stdout();
             match run_sniffer_with_writer(args, cap, stdout.lock(), shutdown) {
-                Ok(()) => ExitCode::SUCCESS,
+                Ok(()) | Err(syslog_sniffer::error::SnifferError::OutputClosed) => {
+                    ExitCode::SUCCESS
+                }
                 Err(e) => {
                     error!("Sniffer failed: {}", e);
                     ExitCode::FAILURE

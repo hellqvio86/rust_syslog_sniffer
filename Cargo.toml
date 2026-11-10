@@ -1,6 +1,6 @@
 [package]
 name = "syslog_sniffer"
-version = "0.1.41"
+version = "0.1.42"
 edition = "2021"
 license = "MIT"
 description = "Fast, lightweight network packet sniffer for UDP syslog traffic with JSON summary reports"

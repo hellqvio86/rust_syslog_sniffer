@@ -116,7 +116,7 @@
   - **Problem:** with `--no-sample` / `--sample-bytes 0` the operator asked for no message content, yet `--debug` still logs 64 bytes of every message.
   - **Fix:** when `sample_bytes == 0` log only host, source IP and length. README: state that `--debug` logs message content.
 
-- [ ] **P1-11 VLAN-tagged traffic is decoded but never captured** `(verify)`
+- [x] **P1-11 VLAN-tagged traffic is decoded but never captured** `(verify)`
   - **Where:** `src/capture.rs` filter `udp dst port N`.
   - **Problem:** libpcap's plain `udp dst port` expression assumes untagged Ethernet; 802.1Q-tagged frames (promiscuous capture on a trunk, or drivers that don't strip tags) do not match, although `decode.rs` handles up to three tag types.
   - **Fix:** `udp dst port N or (vlan and udp dst port N)` for Ethernet datalinks (use `cap.get_datalink()` to decide); verify with a crafted tagged pcap replayed through the shared offline filter from P0-2.

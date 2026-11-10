@@ -192,6 +192,58 @@ pub mod test_helpers {
         pkt
     }
 
+    pub fn craft_vlan_ethernet_ipv4_udp(dst_port: u16, vlan_id: u16, payload: &[u8]) -> Vec<u8> {
+        let mut pkt = Vec::new();
+        pkt.extend_from_slice(&[0x00, 0x11, 0x22, 0x33, 0x44, 0x55]);
+        pkt.extend_from_slice(&[0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb]);
+        pkt.extend_from_slice(&[0x81, 0x00]); // 802.1Q
+        pkt.extend_from_slice(&vlan_id.to_be_bytes());
+        pkt.extend_from_slice(&[0x08, 0x00]); // EtherType IPv4
+
+        let total_len = (20 + 8 + payload.len()) as u16;
+        let mut ip_hdr = vec![
+            0x45,
+            0x00,
+            (total_len >> 8) as u8,
+            (total_len & 0xff) as u8,
+            0x12,
+            0x34,
+            0x00,
+            0x00,
+            64,
+            17,
+            0x00,
+            0x00,
+            192,
+            168,
+            1,
+            10,
+            192,
+            168,
+            1,
+            20,
+        ];
+        let mut sum = 0u32;
+        for i in (0..ip_hdr.len()).step_by(2) {
+            sum += u16::from_be_bytes([ip_hdr[i], ip_hdr[i + 1]]) as u32;
+        }
+        while (sum >> 16) != 0 {
+            sum = (sum & 0xffff) + (sum >> 16);
+        }
+        let csum = !(sum as u16);
+        ip_hdr[10] = (csum >> 8) as u8;
+        ip_hdr[11] = (csum & 0xff) as u8;
+        pkt.extend_from_slice(&ip_hdr);
+
+        let udp_len = (8 + payload.len()) as u16;
+        pkt.extend_from_slice(&12345u16.to_be_bytes());
+        pkt.extend_from_slice(&dst_port.to_be_bytes());
+        pkt.extend_from_slice(&udp_len.to_be_bytes());
+        pkt.extend_from_slice(&0u16.to_be_bytes());
+        pkt.extend_from_slice(payload);
+        pkt
+    }
+
     pub fn write_test_pcap(path: &Path, linktype: u32, packets: &[&[u8]]) {
         let mut file_bytes = Vec::new();
         file_bytes.extend_from_slice(&0xa1b2c3d4u32.to_ne_bytes());
@@ -248,6 +300,37 @@ mod tests {
 
         let p2 = file_cap.next_packet();
         assert!(matches!(p2, Err(SnifferError::CaptureClosed(_))));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_file_capture_vlan_tagged_packet_matched_by_bpf() {
+        let vlan_pkt = craft_vlan_ethernet_ipv4_udp(514, 100, b"<13>Oct 11 22:14:15 vlanhost test");
+        let decoy_pkt = craft_vlan_ethernet_ipv4_udp(9999, 100, b"<13>decoy wrong port");
+        let path = std::env::temp_dir().join(format!("test_vlan_pcap_{}.pcap", std::process::id()));
+        write_test_pcap(&path, 1, &[&vlan_pkt, &decoy_pkt]);
+
+        let mut file_cap = FileCapture::new(&path, 514).expect("open valid vlan pcap");
+        assert_eq!(file_cap.datalink(), Datalink::Ethernet);
+
+        let p1 = file_cap.next_packet().expect("read packet 1");
+        assert_eq!(
+            p1,
+            Some(PacketData {
+                data: vlan_pkt.clone()
+            })
+        );
+
+        // Decoy packet with port 9999 should be filtered out by BPF filter
+        let p2 = file_cap.next_packet();
+        assert!(matches!(p2, Err(SnifferError::CaptureClosed(_))));
+
+        // Verify decoder decodes the VLAN packet correctly
+        let decoded =
+            crate::decode_datagram(Datalink::Ethernet, &vlan_pkt).expect("decode vlan packet");
+        assert_eq!(decoded.dst_port, 514);
+        assert_eq!(decoded.payload, b"<13>Oct 11 22:14:15 vlanhost test");
 
         let _ = std::fs::remove_file(&path);
     }

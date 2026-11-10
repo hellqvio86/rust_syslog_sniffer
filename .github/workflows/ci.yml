@@ -153,17 +153,26 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Build amd64 image for testing
+      - name: Build multi-arch image (test build for all platforms)
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: false
-          tags: syslog_sniffer:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          load: true
+
+      - name: Smoke-test all platforms under QEMU
+        run: |
+          for platform in linux/amd64 linux/arm64 linux/arm/v7; do
+            echo "Smoke testing $platform..."
+            tag="syslog_sniffer:${platform//\//_}"
+            docker buildx build --platform "$platform" --load -t "$tag" .
+            docker run --rm "$tag" --version
+            docker run --rm -v "$(pwd)/tests/fixtures:/fixtures:ro" "$tag" --read-pcap /fixtures/valid_syslog.pcap
+          done
+          docker tag syslog_sniffer:linux_amd64 syslog_sniffer:latest
 
       - name: Install test dependencies
         run: |
@@ -319,6 +328,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     
     steps:
       - name: Checkout repository
@@ -337,6 +348,17 @@ jobs:
         run: |
           echo "Downloaded artifacts:"
           ls -lR release_assets/
+
+      - name: Generate SHA256SUMS
+        run: |
+          cd release_assets
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: 'release_assets/*'
 
       - name: Create Git tag
         run: |
@@ -370,6 +392,8 @@ jobs:
 
     permissions:
       contents: read
+      id-token: write
+      attestations: write
 
     steps:
       - name: Checkout repository
@@ -398,34 +422,6 @@ jobs:
             type=raw,value=${{ needs.detect.outputs.version }}
             type=raw,value=latest
 
-      - name: Download release binaries
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          mkdir -p release_assets
-          gh release download "${{ needs.detect.outputs.tag }}" --dir release_assets --pattern "syslog_sniffer_*"
-
-      - name: Prepare binaries for Docker
-        run: |
-          set -e
-          ls -l release_assets
-
-          AMD64_BIN=$(find release_assets -name "*_linux_amd64" -type f | head -n 1)
-          ARM64_BIN=$(find release_assets -name "*_linux_arm64" -type f | head -n 1)
-          ARMHF_BIN=$(find release_assets -name "*_linux_armhf" -type f | head -n 1)
-
-          [ -n "$AMD64_BIN" ] || (echo "Missing amd64 binary" && exit 1)
-          [ -n "$ARM64_BIN" ] || (echo "Missing arm64 binary" && exit 1)
-          [ -n "$ARMHF_BIN" ] || (echo "Missing armhf binary" && exit 1)
-
-          cp "$AMD64_BIN" syslog_sniffer_amd64
-          cp "$ARM64_BIN" syslog_sniffer_arm64
-          cp "$ARMHF_BIN" syslog_sniffer_arm
-
-          chmod +x syslog_sniffer_*
-
-          ls -l syslog_sniffer_*
-
       - name: Check if Docker image already exists
         id: check-image
         run: |
@@ -442,9 +438,12 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: ./Dockerfile.release
+          file: ./Dockerfile
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: mode=max
+          sbom: true

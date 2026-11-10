@@ -173,7 +173,7 @@
 
 Round-1 boxes P3-5 and P3-7 were ticked but are only partly done; the missing pieces are listed again here.
 
-- [ ] **P3-1 Release gating and provenance** **(carried: P3-5)**
+- [x] **P3-1 Release gating and provenance** **(carried: P3-5)**
   - README/`docs/WORKFLOW_SUMMARY.md` and the draft-release step imply a human review, but `publish-docker` is wired directly after `create-release` (once P1-1 is fixed it would push `latest` before anyone reviews the draft). Implement the gate (`on: release: types: [published]` or a protected Environment with required reviewers) or state clearly in docs that publishing is automatic.
   - `publish-docker` still has `packages: write` but pushes to Docker Hub: remove.
   - Add `provenance: mode=max` and `sbom: true` to `docker/build-push-action`, keyless cosign signing (or `actions/attest-build-provenance`) for binaries and image, and a `SHA256SUMS` release asset.
@@ -187,7 +187,7 @@ Round-1 boxes P3-5 and P3-7 were ticked but are only partly done; the missing pi
   - `coverage` has `contents: write` and runs on `pull_request`, so PR code runs beside a write-scoped token; it commits `coverage.svg` on every push (noise, and a source of HEAD~1 confusion). `curl … > coverage.svg` has no `-fsSL`, so a shields.io error page gets committed as the badge; coverage is scraped from `cobertura.xml` with `grep -o … | head -1`.
   - **Fix:** run the badge-commit step only on `push` to `main` in a separate job; `curl --fail --silent --show-error --retry 3`; parse with `xmllint`/`jq` or `cargo tarpaulin --out Json`; or drop the committed badge for Codecov/gist.
 
-- [ ] **P3-4 The published image is never the image that is tested** **(carried: P3-4)**
+- [x] **P3-4 The published image is never the image that is tested** **(carried: P3-4)**
   - CI e2e-tests the source-built `Dockerfile` image (amd64). The published image comes from `Dockerfile.release`: binaries cross-built on `ubuntu-latest` against Ubuntu glibc/libpcap (via the `ports.ubuntu.com` apt rewrite), dropped onto Debian trixie. arm64/armv7 binaries are never executed in CI.
   - **Fix:** build release binaries inside Debian trixie via one multi-platform `buildx` build, smoke-test every platform under QEMU (`--version`, and a `--read-pcap` replay of a fixture), run the full e2e against the release amd64 image, and build (not publish) the arm targets on PRs.
 

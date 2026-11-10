@@ -34,11 +34,7 @@ make run ARGS="--interface lo --port 514"
 
 ### Docker Build
 
-The project uses Debian Trixie-based Docker images for runtime compatibility and security.
-
-**Two Dockerfiles:**
-- `Dockerfile` - Builds from source (for local development and testing)
-- `Dockerfile.release` - Uses pre-built binaries (for published multi-arch images)
+The project uses Debian Trixie-based multi-architecture Docker images (`linux/amd64`, `linux/arm64`, `linux/arm/v7`) with BuildKit and Buildx.
 
 #### Build Docker Image
 

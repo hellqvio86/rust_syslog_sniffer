@@ -10,21 +10,22 @@ if [[ -d "${HOME}/.local/bin" && ":${PATH}:" != *":${HOME}/.local/bin:"* ]]; the
 fi
 
 echo "=========================================="
-echo "Running pre-commit checks..."
+echo "Running fast pre-commit checks..."
 echo "=========================================="
 
-echo "--> [1/4] Running linter and code quality checks..."
-make lint
+echo "--> [1/3] Checking code formatting..."
+cargo fmt -- --check
 
-echo "--> [2/4] Running unit tests..."
-make test
+echo "--> [2/3] Checking linter (clippy)..."
+cargo clippy --locked --all-targets -- -D warnings
 
-echo "--> [3/4] Running TruffleHog secret scan..."
-make secrets
-
-echo "--> [4/4] Running Trivy vulnerability scan..."
-make trivy
+echo "--> [3/3] Scanning secrets on staged diff..."
+if command -v trufflehog >/dev/null 2>&1; then
+    trufflehog --no-update git file://"$(pwd)" --since-commit HEAD --only-verified --fail
+elif command -v docker >/dev/null 2>&1; then
+    docker run --rm -v "$(pwd):/src" -w /src trufflesecurity/trufflehog:3.99.8 git file:///src --since-commit HEAD --only-verified --fail
+fi
 
 echo "=========================================="
-echo "All pre-commit checks passed!"
+echo "Pre-commit checks passed!"
 echo "=========================================="

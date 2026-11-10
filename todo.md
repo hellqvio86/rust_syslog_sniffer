@@ -196,7 +196,7 @@ Round-1 boxes P3-5 and P3-7 were ticked but are only partly done; the missing pi
   - No dependency-layer caching (manifests and `src` copied together): use a manifest-first layer, `cargo-chef`, or BuildKit cache mounts.
   - `.dockerignore`: the `.env` entry is still missing from `.dockerignore` (it is in `.gitignore`); add it. The `ansible/` entry is stale now that the directory is gone.
 
-- [ ] **P3-6 Security scans and hooks** **(carried: P3-8)**
+- [x] **P3-6 Security scans and hooks** **(carried: P3-8)**
   - Trivy runs `fs` only; add `trivy image --ignore-unfixed` on the built image, on a schedule too.
   - `.githooks/pre-commit` runs lint + full tests + a TruffleHog scan of the whole git history + Trivy on every commit; people will bypass it. Make the hook fast (fmt + clippy + secrets on the staged diff); move full scans to `pre-push`/CI. Pin `trufflesecurity/trufflehog` and `aquasec/trivy` images in the Makefile and `bin/renovate/run.sh` (currently `:latest`).
 

@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${REPO_ROOT}"
+
+if [[ -d "${HOME}/.local/bin" && ":${PATH}:" != *":${HOME}/.local/bin:"* ]]; then
+    export PATH="${HOME}/.local/bin:${PATH}"
+fi
+
+echo "=========================================="
+echo "Running pre-push checks..."
+echo "=========================================="
+
+echo "--> [1/4] Running linter and code quality checks..."
+make lint
+
+echo "--> [2/4] Running unit tests..."
+make test
+
+echo "--> [3/4] Running full TruffleHog secret scan..."
+make secrets
+
+echo "--> [4/4] Running Trivy vulnerability scan..."
+make trivy
+
+echo "=========================================="
+echo "All pre-push checks passed!"
+echo "=========================================="

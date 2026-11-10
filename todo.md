@@ -183,7 +183,7 @@ Round-1 boxes P3-5 and P3-7 were ticked but are only partly done; the missing pi
   - None of `cargo fmt/clippy/test/auditable build` use `--locked`; the **release job builds with `cargo auditable build --release` (no `--locked`)**, so shipped binaries are not guaranteed to match the tested lockfile. Add `--locked` to every cargo invocation.
   - Add `cargo deny check` (advisories, licenses, bans) or `cargo audit`, `cargo doc` with `RUSTDOCFLAGS=-D warnings`, and the MSRV job (P1-12). Use `make lint` in CI so there is one definition.
 
-- [ ] **P3-3 Coverage job: write token on PRs, fragile badge** **(carried: P3-6)**
+- [x] **P3-3 Coverage job: write token on PRs, fragile badge** **(carried: P3-6)**
   - `coverage` has `contents: write` and runs on `pull_request`, so PR code runs beside a write-scoped token; it commits `coverage.svg` on every push (noise, and a source of HEAD~1 confusion). `curl … > coverage.svg` has no `-fsSL`, so a shields.io error page gets committed as the badge; coverage is scraped from `cobertura.xml` with `grep -o … | head -1`.
   - **Fix:** run the badge-commit step only on `push` to `main` in a separate job; `curl --fail --silent --show-error --retry 3`; parse with `xmllint`/`jq` or `cargo tarpaulin --out Json`; or drop the committed badge for Codecov/gist.
 

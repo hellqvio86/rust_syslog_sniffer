@@ -1,5 +1,5 @@
 name: 'Check Version Change'
-description: 'Checks if the version in Cargo.toml has a corresponding git release tag'
+description: 'Checks if the version in Cargo.toml has a corresponding git release tag or release'
 outputs:
   changed:
     description: 'Whether a new tag/release is needed'
@@ -7,6 +7,9 @@ outputs:
   version:
     description: 'The current Cargo.toml version number'
     value: ${{ steps.check.outputs.version }}
+  tag:
+    description: 'The current version tag'
+    value: ${{ steps.check.outputs.tag }}
 runs:
   using: 'composite'
   steps:
@@ -15,14 +18,25 @@ runs:
       shell: bash
       run: |
         CURRENT_VERSION=$(grep -m 1 '^version =' Cargo.toml | cut -d '"' -f 2)
-        echo "Current Cargo.toml version: $CURRENT_VERSION"
+        TAG="v$CURRENT_VERSION"
+        echo "Current Cargo.toml version: $CURRENT_VERSION ($TAG)"
 
-        # Check if tag v$CURRENT_VERSION already exists on origin
-        if git ls-remote --tags origin "refs/tags/v$CURRENT_VERSION" | grep -q "refs/tags/v$CURRENT_VERSION"; then
-          echo "Tag v$CURRENT_VERSION already exists on origin; skipping release."
+        TAG_EXISTS=false
+        if git ls-remote --tags origin "refs/tags/$TAG" | grep -q "refs/tags/$TAG"; then
+          TAG_EXISTS=true
+        fi
+
+        RELEASE_EXISTS=false
+        if command -v gh >/dev/null 2>&1 && gh release view "$TAG" >/dev/null 2>&1; then
+          RELEASE_EXISTS=true
+        fi
+
+        if [ "$TAG_EXISTS" = "true" ] && [ "$RELEASE_EXISTS" = "true" ]; then
+          echo "Tag and release $TAG already exist on origin; skipping release."
           echo "changed=false" >> $GITHUB_OUTPUT
         else
-          echo "Tag v$CURRENT_VERSION does not exist on origin; new release will be created."
+          echo "Tag or release $TAG does not exist on origin; release needed."
           echo "changed=true" >> $GITHUB_OUTPUT
         fi
         echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+        echo "tag=$TAG" >> $GITHUB_OUTPUT

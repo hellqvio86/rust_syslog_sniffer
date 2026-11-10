@@ -7,12 +7,85 @@ on:
     branches: [ "main", "master" ]
   pull_request:
     branches: [ "main", "master" ]
+  release:
+    types: [ published ]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  detect:
+    name: Detect Version & Release Needs
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.detect.outputs.version }}
+      tag: ${{ steps.detect.outputs.tag }}
+      should_release: ${{ steps.detect.outputs.should_release }}
+      should_publish_docker: ${{ steps.detect.outputs.should_publish_docker }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Detect version and release status
+        id: detect
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+            VERSION="${TAG#v}"
+            echo "Release event for $TAG (version $VERSION)"
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "tag=$TAG" >> $GITHUB_OUTPUT
+            echo "should_release=false" >> $GITHUB_OUTPUT
+
+            if docker buildx imagetools inspect "docker.io/hellqvio/syslog_sniffer:${VERSION}" >/dev/null 2>&1; then
+              echo "Docker image docker.io/hellqvio/syslog_sniffer:${VERSION} already exists on Docker Hub; skipping publish."
+              echo "should_publish_docker=false" >> $GITHUB_OUTPUT
+            else
+              echo "Docker image docker.io/hellqvio/syslog_sniffer:${VERSION} does not exist on Docker Hub; will publish."
+              echo "should_publish_docker=true" >> $GITHUB_OUTPUT
+            fi
+          elif [ "${{ github.event_name }}" = "push" ] && ([ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.ref }}" = "refs/heads/master" ]); then
+            VERSION=$(grep -m 1 '^version =' Cargo.toml | cut -d '"' -f 2)
+            TAG="v$VERSION"
+            echo "Push event on ${{ github.ref }}. Cargo version: $VERSION ($TAG)"
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+            TAG_EXISTS=false
+            if git ls-remote --tags origin "refs/tags/$TAG" | grep -q "refs/tags/$TAG"; then
+              TAG_EXISTS=true
+            fi
+
+            RELEASE_EXISTS=false
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              RELEASE_EXISTS=true
+            fi
+
+            if [ "$TAG_EXISTS" = "true" ] && [ "$RELEASE_EXISTS" = "true" ]; then
+              echo "Both tag and release $TAG exist. Skipping release."
+              echo "should_release=false" >> $GITHUB_OUTPUT
+            else
+              echo "Release needed for $TAG (tag_exists=$TAG_EXISTS, release_exists=$RELEASE_EXISTS)."
+              echo "should_release=true" >> $GITHUB_OUTPUT
+            fi
+
+            # Images are gated on publishing the draft release
+            echo "should_publish_docker=false" >> $GITHUB_OUTPUT
+          else
+            VERSION=$(grep -m 1 '^version =' Cargo.toml | cut -d '"' -f 2)
+            echo "Non-release event (${{ github.event_name }} on ${{ github.ref }})."
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+            echo "should_release=false" >> $GITHUB_OUTPUT
+            echo "should_publish_docker=false" >> $GITHUB_OUTPUT
+          fi
+
   build-and-test:
+    if: github.event_name != 'release'
     runs-on: ubuntu-latest
 
     steps:
@@ -128,8 +201,8 @@ jobs:
           file_pattern: coverage.svg
 
   build-release-binaries:
-    needs: build-and-test
-    if: github.ref == 'refs/heads/main'
+    needs: [build-and-test, detect]
+    if: needs.detect.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -187,12 +260,6 @@ jobs:
         with:
           tool: cargo-auditable,cargo-cyclonedx
 
-      - name: Extract Cargo version
-        id: meta
-        run: |
-          VERSION=$(grep -m 1 '^version =' Cargo.toml | cut -d '"' -f 2)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
       - name: Build release binary
         env:
           PKG_CONFIG_ALLOW_CROSS: 1
@@ -213,20 +280,19 @@ jobs:
       - name: Prepare artifacts
         run: |
           mkdir -p dist
-          cp target/${{ matrix.target }}/release/syslog_sniffer dist/syslog_sniffer_${{ steps.meta.outputs.version }}_linux_${{ matrix.arch }}
+          cp target/${{ matrix.target }}/release/syslog_sniffer dist/syslog_sniffer_${{ needs.detect.outputs.version }}_linux_${{ matrix.arch }}
           cp sbom-${{ matrix.arch }}.json dist/
 
       - name: Upload Binary Artifact
-        if: github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v7
         with:
-          name: syslog_sniffer_${{ steps.meta.outputs.version }}_linux_${{ matrix.arch }}
+          name: syslog_sniffer_${{ needs.detect.outputs.version }}_linux_${{ matrix.arch }}
           path: dist/*
 
   create-release:
     name: Create Draft Release
-    needs: [build-release-binaries, docker-build-and-test]
-    if: github.ref == 'refs/heads/main'
+    needs: [detect, build-release-binaries, docker-build-and-test]
+    if: needs.detect.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -237,12 +303,7 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Check if version changed
-        id: version
-        uses: ./.github/actions/check-version-change
-
       - name: Download release binaries
-        if: steps.version.outputs.changed == 'true'
         uses: actions/download-artifact@v8
         with:
           pattern: "syslog_sniffer_*"
@@ -250,25 +311,27 @@ jobs:
           merge-multiple: true
 
       - name: List downloaded artifacts
-        if: steps.version.outputs.changed == 'true'
         run: |
           echo "Downloaded artifacts:"
           ls -lR release_assets/
 
       - name: Create Git tag
-        if: steps.version.outputs.changed == 'true'
         run: |
+          TAG="${{ needs.detect.outputs.tag }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "v${{ steps.version.outputs.version }}" -m "Release v${{ steps.version.outputs.version }}"
-          git push origin "v${{ steps.version.outputs.version }}"
+          if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q "refs/tags/${TAG}"; then
+            echo "Tag ${TAG} already exists on origin; skipping git tag creation."
+          else
+            git tag -a "${TAG}" -m "Release ${TAG}"
+            git push origin "${TAG}"
+          fi
 
       - name: Create draft release
-        if: steps.version.outputs.changed == 'true'
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: Release v${{ steps.version.outputs.version }}
+          tag_name: ${{ needs.detect.outputs.tag }}
+          name: Release ${{ needs.detect.outputs.tag }}
           draft: true
           prerelease: false
           generate_release_notes: true
@@ -278,59 +341,48 @@ jobs:
 
   publish-docker:
     name: Publish Multi-Arch Docker Images
-    needs: create-release
-    if: github.ref == 'refs/heads/main'
+    needs: detect
+    if: needs.detect.outputs.should_publish_docker == 'true'
     runs-on: ubuntu-latest
 
     permissions:
       contents: read
-      packages: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
-          fetch-depth: 2
-
-      - name: Check if version changed
-        id: version
-        uses: ./.github/actions/check-version-change
+          fetch-depth: 1
 
       - name: Set up QEMU
-        if: steps.version.outputs.changed == 'true'
         uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
-        if: steps.version.outputs.changed == 'true'
         uses: docker/setup-buildx-action@v4
 
       - name: Log in to Docker Hub
-        if: steps.version.outputs.changed == 'true'
         uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Extract Docker metadata
-        if: steps.version.outputs.changed == 'true'
         id: meta
         uses: docker/metadata-action@v6
         with:
           images: docker.io/hellqvio/syslog_sniffer
           tags: |
-            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=${{ needs.detect.outputs.version }}
             type=raw,value=latest
 
       - name: Download release binaries
-        if: steps.version.outputs.changed == 'true'
-        uses: actions/download-artifact@v8
-        with:
-          pattern: "syslog_sniffer_*"
-          path: release_assets
-          merge-multiple: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p release_assets
+          gh release download "${{ needs.detect.outputs.tag }}" --dir release_assets --pattern "syslog_sniffer_*"
 
       - name: Prepare binaries for Docker
-        if: steps.version.outputs.changed == 'true'
         run: |
           set -e
           ls -l release_assets
@@ -351,8 +403,19 @@ jobs:
 
           ls -l syslog_sniffer_*
 
+      - name: Check if Docker image already exists
+        id: check-image
+        run: |
+          if docker buildx imagetools inspect "docker.io/hellqvio/syslog_sniffer:${{ needs.detect.outputs.version }}" >/dev/null 2>&1; then
+            echo "Image already exists on Docker Hub; skipping build and push."
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "Image does not exist on Docker Hub; proceeding with build and push."
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build and push multi-arch Docker image
-        if: steps.version.outputs.changed == 'true'
+        if: steps.check-image.outputs.exists == 'false'
         uses: docker/build-push-action@v7
         with:
           context: .

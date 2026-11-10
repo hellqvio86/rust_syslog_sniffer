@@ -55,7 +55,7 @@
 
 ## P1 — behaviour, output contract, release pipeline
 
-- [ ] **P1-1 Docker publish is skipped after a successful release job** `(verify in a real run)`
+- [x] **P1-1 Docker publish is skipped after a successful release job** `(verify in a real run)`
   - **Where:** `.github/workflows/ci.yml` (`create-release` → `publish-docker`), `.github/actions/check-version-change/action.yml`.
   - **Problem:** the composite action decides `changed` by asking `git ls-remote --tags origin vX.Y.Z`. `create-release` runs it, then **pushes that tag**. `publish-docker` (`needs: create-release`) runs the same action afterwards, finds the tag it just saw created, sets `changed=false`, and every publish step (`if: steps.version.outputs.changed == 'true'`) is skipped. Net effect: GitHub draft release is created, **no image is pushed**. Re-running the workflow cannot recover because the tag now exists.
   - **Fix:**

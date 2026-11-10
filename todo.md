@@ -139,7 +139,7 @@
   - **Problem:** the 250 ms read timeout is inert in non-blocking mode; the loop polls at ~100 Hz and adds up to 10 ms latency. CPU is fine today (measured ~0.5%), but this is a workaround, not the intended design.
   - **Fix:** remove `setnonblock()` and the 10 ms sleep; rely on blocking reads with the 250 ms timeout so shutdown/report deadlines still fire. Re-measure idle CPU and record before/after in the PR. `(verify)` behaviour of `immediate_mode(true)` + timeout on Linux (TPACKET_V3) and on the armv7 build.
 
-- [ ] **P2-3 Fuzz + property tests (now justified by P0-1)** **(carried: P2-3)**
+- [x] **P2-3 Fuzz + property tests (now justified by P0-1)** **(carried: P2-3)**
   - Add `proptest` (dev-dependency): arbitrary `Vec<u8>` into `parse_syslog_packet` and `decode_datagram` for each `Datalink`; invariants: no panic, `hostname.len() <= payload.len()`, decoded `payload` is a sub-slice of the frame, JSON output re-parses.
   - Add a `cargo-fuzz` target (`fuzz/fuzz_targets/parse.rs`, `decode.rs`) and a weekly scheduled workflow with a short time budget; seed corpus from the unit-test payloads.
 

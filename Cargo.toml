@@ -27,3 +27,6 @@ strip = "symbols"
 
 [lints.rust]
 unsafe_code = "forbid"
+
+[dev-dependencies]
+proptest = "1.11.0"

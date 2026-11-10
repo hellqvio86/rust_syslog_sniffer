@@ -1,0 +1,32 @@
+name: Fuzzing
+
+on:
+  schedule:
+    - cron: '0 3 * * 0' # Weekly at 03:00 UTC on Sunday
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: Fuzz Targets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install libpcap dev
+        run: sudo apt-get update && sudo apt-get install -y libpcap-dev
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+
+      - name: Fuzz parse target
+        run: cargo fuzz run parse -- -max_total_time=60
+
+      - name: Fuzz decode target
+        run: cargo fuzz run decode -- -max_total_time=60

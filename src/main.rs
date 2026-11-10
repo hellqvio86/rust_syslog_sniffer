@@ -33,6 +33,10 @@ fn init_and_run(args: Config) -> ExitCode {
     }
     let _ = builder.try_init();
 
+    if args.interval.is_some() {
+        warn!("The --interval argument is deprecated; use --duration instead.");
+    }
+
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_signal = shutdown.clone();
     if let Err(e) = ctrlc::set_handler(move || {

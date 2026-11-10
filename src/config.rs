@@ -54,10 +54,12 @@ pub struct Config {
 
     #[arg(
         long,
-        alias = "interval",
         help = "Total runtime in seconds before exiting (default: 10 in one-shot mode; 0 or omitted in periodic mode runs until signalled)"
     )]
     pub duration: Option<u64>,
+
+    #[arg(long, hide = true, conflicts_with = "duration")]
+    pub interval: Option<u64>,
 
     #[arg(long, default_value_t = false, help = "Enable periodic summary output")]
     pub periodic: bool,
@@ -152,7 +154,8 @@ impl Config {
     /// If duration is explicitly 0, returns None (run indefinitely).
     /// In one-shot mode with no duration specified, defaults to 10 seconds.
     pub fn effective_duration_secs(&self) -> Option<u64> {
-        match self.duration {
+        let dur = self.duration.or(self.interval);
+        match dur {
             Some(0) => None,
             Some(d) => Some(d),
             None => {
@@ -175,11 +178,12 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<(), String> {
-        if let Some(dur) = self.duration {
-            if dur > 0 && self.periodic && self.frequency > dur {
+        let dur = self.duration.or(self.interval);
+        if let Some(d) = dur {
+            if d > 0 && self.periodic && self.frequency > d {
                 return Err(format!(
                     "Periodic frequency ({}s) cannot be greater than total duration ({}s)",
-                    self.frequency, dur
+                    self.frequency, d
                 ));
             }
         }
@@ -330,11 +334,22 @@ mod tests {
     }
 
     #[test]
-    fn test_interval_alias() {
+    fn test_interval_deprecated_flag() {
         let args = vec!["syslog_sniffer", "--interface", "lo", "--interval", "15"];
         let config = Config::parse_from(args);
-        assert_eq!(config.duration, Some(15));
+        assert_eq!(config.interval, Some(15));
         assert_eq!(config.effective_duration_secs(), Some(15));
+
+        let conflict = vec![
+            "syslog_sniffer",
+            "-i",
+            "lo",
+            "--duration",
+            "10",
+            "--interval",
+            "15",
+        ];
+        assert!(Config::try_parse_from(conflict).is_err());
     }
 
     #[test]

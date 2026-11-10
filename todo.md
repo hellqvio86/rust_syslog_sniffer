@@ -91,7 +91,7 @@
   - **Fix:** validate in `main` before touching pcap (exit code 2, clap-style message) or encode in clap (`value_parser` ranges, `ArgGroup`/custom validator). Use `u32` with ranges: `max_hosts >= 1`, `snaplen 64..=262144`, `buffer_size >= 65536` (document units).
   - **Acceptance:** each bad value fails with exit 2 before any pcap call (test via `Config::try_parse_from`).
 
-- [ ] **P1-6 `--interval` deprecation lives in the library and reads process args** **(carried: P1-1)**
+- [x] **P1-6 `--interval` deprecation lives in the library and reads process args** **(carried: P1-1)**
   - **Where:** `src/app.rs` `check_interval_deprecated(std::env::args())` is called from `run_sniffer_with_writer`.
   - **Problem:** a library function inspecting `std::env::args()` is a layering violation, pollutes tests, and is invisible anyway (P1-3).
   - **Fix:** declare a hidden `#[arg(long, hide = true, conflicts_with = "duration")] interval: Option<u64>` in `Config`, fold it into `effective_duration_secs()`, and warn in `main.rs` when it is set. Delete `check_interval_deprecated`.

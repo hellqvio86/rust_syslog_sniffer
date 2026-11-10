@@ -23,8 +23,6 @@ pub fn run_sniffer_with_writer<S: PacketSource, W: Write>(
     mut writer: W,
     shutdown: Arc<AtomicBool>,
 ) -> Result<(), SnifferError> {
-    check_interval_deprecated(std::env::args());
-
     config
         .validate()
         .map_err(|e| SnifferError::Capture(format!("Configuration error: {}", e)))?;
@@ -200,15 +198,6 @@ fn write_summary_json<W: Write>(writer: &mut W, json: &str) -> Result<(), Sniffe
     Ok(())
 }
 
-fn check_interval_deprecated<I: IntoIterator<Item = String>>(args: I) {
-    if args
-        .into_iter()
-        .any(|a| a == "--interval" || a.starts_with("--interval="))
-    {
-        warn!("The --interval argument is deprecated; use --duration instead.");
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -254,6 +243,7 @@ mod tests {
             interface: Some("lo".to_string()),
             port: 514,
             duration: Some(1),
+            interval: None,
             debug: false,
             periodic: false,
             frequency: 1,
@@ -628,13 +618,6 @@ mod tests {
             Arc::new(AtomicBool::new(false)),
         );
         assert!(matches!(res_broken, Err(SnifferError::OutputClosed)));
-    }
-
-    #[test]
-    fn test_check_interval_deprecated() {
-        check_interval_deprecated(vec!["--interval".to_string()]);
-        check_interval_deprecated(vec!["--interval=10".to_string()]);
-        check_interval_deprecated(vec!["--duration".to_string(), "10".to_string()]);
     }
 
     #[test]

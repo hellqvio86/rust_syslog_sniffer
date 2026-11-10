@@ -16,6 +16,14 @@ pub enum KeyBy {
     SourceIp,
 }
 
+fn parse_max_hosts(s: &str) -> Result<usize, String> {
+    let val: usize = s.parse().map_err(|e| format!("{}", e))?;
+    if val < 1 {
+        return Err("must be at least 1".to_string());
+    }
+    Ok(val)
+}
+
 /// Fast, lightweight network packet sniffer for UDP syslog traffic.
 #[derive(Parser, Debug, Clone)]
 #[command(name = "syslog_sniffer")]
@@ -66,6 +74,7 @@ pub struct Config {
     #[arg(
         long,
         default_value_t = 10_000,
+        value_parser = parse_max_hosts,
         help = "Maximum number of distinct hosts to track in memory (default: 10000)"
     )]
     pub max_hosts: usize,
@@ -117,16 +126,18 @@ pub struct Config {
     #[arg(
         long,
         default_value_t = 2 * 1024 * 1024,
-        help = "Libpcap buffer size in bytes (default: 2097152)"
+        value_parser = clap::value_parser!(u32).range(65536..),
+        help = "Libpcap buffer size in bytes (>= 65536, default: 2097152)"
     )]
-    pub buffer_size: i32,
+    pub buffer_size: u32,
 
     #[arg(
         long,
         default_value_t = 65535,
-        help = "Packet capture snaplen in bytes (default: 65535)"
+        value_parser = clap::value_parser!(u32).range(64..=262144),
+        help = "Packet capture snaplen in bytes (64..=262144, default: 65535)"
     )]
-    pub snaplen: i32,
+    pub snaplen: u32,
 
     #[arg(
         long,
@@ -221,6 +232,36 @@ mod tests {
         assert_eq!(
             determine_log_level(false, false),
             Some(log::LevelFilter::Warn)
+        );
+    }
+
+    #[test]
+    fn test_numeric_arg_validation() {
+        assert!(
+            Config::try_parse_from(["syslog_sniffer", "-i", "lo", "--max-hosts", "0"]).is_err()
+        );
+        assert!(Config::try_parse_from(["syslog_sniffer", "-i", "lo", "--max-hosts", "1"]).is_ok());
+
+        assert!(Config::try_parse_from(["syslog_sniffer", "-i", "lo", "--snaplen", "0"]).is_err());
+        assert!(Config::try_parse_from(["syslog_sniffer", "-i", "lo", "--snaplen", "63"]).is_err());
+        assert!(Config::try_parse_from(["syslog_sniffer", "-i", "lo", "--snaplen", "64"]).is_ok());
+        assert!(
+            Config::try_parse_from(["syslog_sniffer", "-i", "lo", "--snaplen", "262144"]).is_ok()
+        );
+        assert!(
+            Config::try_parse_from(["syslog_sniffer", "-i", "lo", "--snaplen", "262145"]).is_err()
+        );
+
+        assert!(
+            Config::try_parse_from(["syslog_sniffer", "-i", "lo", "--buffer-size", "0"]).is_err()
+        );
+        assert!(
+            Config::try_parse_from(["syslog_sniffer", "-i", "lo", "--buffer-size", "65535"])
+                .is_err()
+        );
+        assert!(
+            Config::try_parse_from(["syslog_sniffer", "-i", "lo", "--buffer-size", "65536"])
+                .is_ok()
         );
     }
 

@@ -22,8 +22,8 @@ impl PcapCapture {
         interface: &str,
         port: u16,
         promisc: bool,
-        snaplen: i32,
-        buffer_size: i32,
+        snaplen: u32,
+        buffer_size: u32,
     ) -> Result<Self, SnifferError> {
         let devices =
             Device::list().map_err(|e| SnifferError::DeviceLookupFailed(e.to_string()))?;
@@ -35,8 +35,8 @@ impl PcapCapture {
         let mut cap = Capture::from_device(device)
             .map_err(SnifferError::Pcap)?
             .promisc(promisc)
-            .snaplen(snaplen)
-            .buffer_size(buffer_size)
+            .snaplen(snaplen as i32)
+            .buffer_size(buffer_size as i32)
             .immediate_mode(true)
             .timeout(250) // 250ms read timeout
             .open()

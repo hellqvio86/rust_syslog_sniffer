@@ -12,10 +12,19 @@ use syslog_sniffer::config::{determine_log_level, Config};
 use syslog_sniffer::PacketSource;
 
 fn main() -> ExitCode {
-    init_and_run(Config::parse())
+    let args = match Config::try_parse() {
+        Ok(c) => c,
+        Err(e) => e.exit(),
+    };
+    init_and_run(args)
 }
 
 fn init_and_run(args: Config) -> ExitCode {
+    if let Err(e) = args.validate() {
+        eprintln!("error: {}", e);
+        return ExitCode::from(2);
+    }
+
     let mut builder = env_logger::Builder::from_default_env();
     let env_rust_log_is_set = env::var("RUST_LOG").is_ok();
 
@@ -130,7 +139,11 @@ mod tests {
             "10",
         ]);
         let shutdown2 = Arc::new(AtomicBool::new(false));
-        assert_eq!(run_app(invalid_config, shutdown2), ExitCode::FAILURE);
+        assert_eq!(
+            run_app(invalid_config.clone(), shutdown2),
+            ExitCode::FAILURE
+        );
+        assert_eq!(init_and_run(invalid_config), ExitCode::from(2));
 
         let _ = std::fs::remove_file(&path);
     }

@@ -85,7 +85,7 @@
     - Document the evasion risk in README "Limitations".
   - **Acceptance:** test: 10 000 spoofed hostnames then one real host from a distinct IP → real source IP present in `senders`.
 
-- [ ] **P1-5 Config validation happens after the capture is opened; numeric args under-validated** **(verified)**
+- [x] **P1-5 Config validation happens after the capture is opened; numeric args under-validated** **(verified)**
   - **Where:** `src/main.rs`, `src/app.rs` (validate inside `run_sniffer_with_writer`), `src/config.rs`.
   - **Problem:** the `frequency > duration` check runs only after the interface is opened (needs root, may fail first for the wrong reason) and surfaces as `Capture("Configuration error: …")`. `--max-hosts 0`, `--snaplen=0`, `--buffer-size=-5` are all accepted (exit 0). `buffer_size`/`snaplen` are `i32`.
   - **Fix:** validate in `main` before touching pcap (exit code 2, clap-style message) or encode in clap (`value_parser` ranges, `ArgGroup`/custom validator). Use `u32` with ranges: `max_hosts >= 1`, `snaplen 64..=262144`, `buffer_size >= 65536` (document units).

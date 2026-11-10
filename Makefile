@@ -18,30 +18,30 @@ help: ## Show this help message
 
 build: ## Build the Rust project
 	@if command -v cargo-auditable >/dev/null 2>&1; then \
-		$(CARGO_AUDITABLE) build --release; \
+		$(CARGO_AUDITABLE) build --release --locked; \
 	else \
-		$(CARGO) build --release; \
+		$(CARGO) build --release --locked; \
 	fi
 
 sbom: ## Generate SBOM in CycloneDX format
 	@if ! command -v cargo-cyclonedx >/dev/null 2>&1; then \
 		echo "Installing cargo-cyclonedx..."; \
-		$(CARGO) install cargo-cyclonedx; \
+		$(CARGO) install --locked cargo-cyclonedx; \
 	fi
 	$(CARGO) cyclonedx --format json --override-filename "sbom"
 
 run: ## Run the application (pass arguments via ARGS="--interface lo ...")
-	$(CARGO) run -- $(ARGS)
+	$(CARGO) run --locked -- $(ARGS)
 
 clean: ## Clean build artifacts
 	$(CARGO) clean
 	rm -rf target/
 
 test: ## Run tests
-	$(CARGO) test
+	$(CARGO) test --locked
 
 check: ## Check code without building
-	$(CARGO) check
+	$(CARGO) check --locked
 
 fmt: ## Format code
 	$(CARGO) fmt
@@ -51,12 +51,15 @@ fmt-check: ## Check code formatting
 
 format: ## Format code and fix lints
 	$(CARGO) fmt
-	$(CARGO) clippy --fix --allow-dirty --allow-staged
+	$(CARGO) clippy --locked --fix --allow-dirty --allow-staged
 
 clippy: ## Run clippy linter
-	$(CARGO) clippy --all-targets -- -D warnings
+	$(CARGO) clippy --locked --all-targets -- -D warnings
 
-lint: fmt-check clippy ## Run fmt check and clippy linter
+doc: ## Check documentation
+	RUSTDOCFLAGS="-D warnings" $(CARGO) doc --locked --no-deps
+
+lint: fmt-check clippy doc ## Run fmt check, clippy, and doc linter
 
 coverage: ## Generate coverage report (enforces >= 80% coverage)
 	$(CARGO) tarpaulin --fail-under 80 --follow-exec --out Xml --out Html

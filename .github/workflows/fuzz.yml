@@ -14,16 +14,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install libpcap dev
         run: sudo apt-get update && sudo apt-get install -y libpcap-dev
 
       - name: Install Rust nightly
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@2c76c034f9e32a5d6e2c104dc4df23a22476db04 # nightly
 
       - name: Install cargo-fuzz
-        run: cargo install cargo-fuzz
+        run: cargo install --locked cargo-fuzz
 
       - name: Fuzz parse target
         run: cargo fuzz run parse -- -max_total_time=60

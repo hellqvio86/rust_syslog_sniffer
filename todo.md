@@ -178,7 +178,7 @@ Round-1 boxes P3-5 and P3-7 were ticked but are only partly done; the missing pi
   - `publish-docker` still has `packages: write` but pushes to Docker Hub: remove.
   - Add `provenance: mode=max` and `sbom: true` to `docker/build-push-action`, keyless cosign signing (or `actions/attest-build-provenance`) for binaries and image, and a `SHA256SUMS` release asset.
 
-- [ ] **P3-2 Pin actions by commit SHA; add `--locked` everywhere** **(carried: P3-5, P3-7)**
+- [x] **P3-2 Pin actions by commit SHA; add `--locked` everywhere** **(carried: P3-5, P3-7)**
   - `ci.yml` uses mutable tags/branches (`actions/checkout@v7`, `docker/*@v4/v7`, `softprops/action-gh-release@v3`, `taiki-e/install-action@cargo-tarpaulin`, `dtolnay/rust-toolchain@stable`, `stefanzweifel/git-auto-commit-action@v7`, …) while `security.yml` pins by SHA (and uses `checkout` v4.2.2). Renovate is configured with `helpers:pinGitHubActionDigests` but the workflows are not pinned yet: pin them now and unify checkout versions. `(verify)` every referenced major version exists.
   - None of `cargo fmt/clippy/test/auditable build` use `--locked`; the **release job builds with `cargo auditable build --release` (no `--locked`)**, so shipped binaries are not guaranteed to match the tested lockfile. Add `--locked` to every cargo invocation.
   - Add `cargo deny check` (advisories, licenses, bans) or `cargo audit`, `cargo doc` with `RUSTDOCFLAGS=-D warnings`, and the MSRV job (P1-12). Use `make lint` in CI so there is one definition.

@@ -96,7 +96,7 @@
   - **Problem:** a library function inspecting `std::env::args()` is a layering violation, pollutes tests, and is invisible anyway (P1-3).
   - **Fix:** declare a hidden `#[arg(long, hide = true, conflicts_with = "duration")] interval: Option<u64>` in `Config`, fold it into `effective_duration_secs()`, and warn in `main.rs` when it is set. Delete `check_interval_deprecated`.
 
-- [ ] **P1-7 Decouple the library from the clap struct** **(carried: P1-11, marked done in round 1 but not)**
+- [x] **P1-7 Decouple the library from the clap struct** **(carried: P1-11, marked done in round 1 but not)**
   - **Where:** `run_sniffer_with_writer(config: Config, …)`; tests build `Config` with a 16-field struct literal.
   - **Fix:** introduce `RunOptions { port, duration, periodic, frequency, max_hosts, sample_bytes, format, emit_empty, key_by }` (no clap derive), `impl From<&Config> for RunOptions`, and take that in `app.rs`. Tests use `RunOptions::default()` + struct update.
 

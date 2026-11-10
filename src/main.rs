@@ -67,7 +67,8 @@ fn run_app(args: Config, shutdown: Arc<AtomicBool>) -> ExitCode {
     match capture_source {
         Ok(cap) => {
             let stdout = std::io::stdout();
-            match run_sniffer_with_writer(args, cap, stdout.lock(), shutdown) {
+            let options = syslog_sniffer::RunOptions::from(&args);
+            match run_sniffer_with_writer(options, cap, stdout.lock(), shutdown) {
                 Ok(()) | Err(syslog_sniffer::error::SnifferError::OutputClosed) => {
                     ExitCode::SUCCESS
                 }

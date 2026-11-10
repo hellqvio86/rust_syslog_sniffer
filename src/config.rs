@@ -16,6 +16,65 @@ pub enum KeyBy {
     SourceIp,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunOptions {
+    pub port: u16,
+    pub duration: Option<u64>,
+    pub periodic: bool,
+    pub frequency: u64,
+    pub max_hosts: usize,
+    pub sample_bytes: usize,
+    pub format: OutputFormat,
+    pub emit_empty: bool,
+    pub key_by: KeyBy,
+}
+
+impl Default for RunOptions {
+    fn default() -> Self {
+        Self {
+            port: 514,
+            duration: Some(10),
+            periodic: false,
+            frequency: 5,
+            max_hosts: 10_000,
+            sample_bytes: 256,
+            format: OutputFormat::Pretty,
+            emit_empty: false,
+            key_by: KeyBy::Hostname,
+        }
+    }
+}
+
+impl From<&Config> for RunOptions {
+    fn from(config: &Config) -> Self {
+        Self {
+            port: config.port,
+            duration: config.effective_duration_secs(),
+            periodic: config.periodic,
+            frequency: config.frequency,
+            max_hosts: config.max_hosts,
+            sample_bytes: config.effective_sample_bytes(),
+            format: config.format,
+            emit_empty: config.emit_empty,
+            key_by: config.key_by,
+        }
+    }
+}
+
+impl RunOptions {
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(d) = self.duration {
+            if d > 0 && self.periodic && self.frequency > d {
+                return Err(format!(
+                    "Periodic frequency ({}s) cannot be greater than total duration ({}s)",
+                    self.frequency, d
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 fn parse_max_hosts(s: &str) -> Result<usize, String> {
     let val: usize = s.parse().map_err(|e| format!("{}", e))?;
     if val < 1 {

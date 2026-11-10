@@ -1,4 +1,4 @@
-use crate::config::{Config, OutputFormat};
+use crate::config::{OutputFormat, RunOptions};
 use crate::decode::decode_datagram;
 use crate::error::SnifferError;
 use crate::stats::{truncate_utf8, StatsTracker};
@@ -11,41 +11,39 @@ use std::time::{Duration, Instant, SystemTime};
 
 const MAX_CONSECUTIVE_ERRORS: usize = 50;
 
-pub fn run_sniffer<S: PacketSource>(config: Config, source: S) -> Result<(), SnifferError> {
+pub fn run_sniffer<S: PacketSource>(options: RunOptions, source: S) -> Result<(), SnifferError> {
     let stdout = std::io::stdout();
     let shutdown = Arc::new(AtomicBool::new(false));
-    run_sniffer_with_writer(config, source, stdout.lock(), shutdown)
+    run_sniffer_with_writer(options, source, stdout.lock(), shutdown)
 }
 
 pub fn run_sniffer_with_writer<S: PacketSource, W: Write>(
-    config: Config,
+    options: RunOptions,
     mut source: S,
     mut writer: W,
     shutdown: Arc<AtomicBool>,
 ) -> Result<(), SnifferError> {
-    config
+    options
         .validate()
         .map_err(|e| SnifferError::Capture(format!("Configuration error: {}", e)))?;
 
-    debug!("Port to sniff: {:?}", config.port);
-    debug!("Interface to sniff: {:?}", config.interface);
+    debug!("Port to sniff: {:?}", options.port);
     debug!(
         "Duration: {:?} seconds (periodic={})",
-        config.effective_duration_secs(),
-        config.periodic
+        options.duration, options.periodic
     );
     debug!("Datalink: {:?}", source.datalink());
     debug!("Starting capture loop");
 
-    let total_duration = config.effective_duration_secs().map(Duration::from_secs);
-    let sample_bytes = config.effective_sample_bytes();
-    let mut stats = StatsTracker::new(config.max_hosts, sample_bytes, config.key_by);
+    let total_duration = options.duration.map(Duration::from_secs);
+    let sample_bytes = options.sample_bytes;
+    let mut stats = StatsTracker::new(options.max_hosts, sample_bytes, options.key_by);
 
     let start_instant = Instant::now();
     let mut window_start_instant = Instant::now();
     let mut window_start_time = SystemTime::now();
 
-    let freq_dur = Duration::from_secs(config.frequency.max(1));
+    let freq_dur = Duration::from_secs(options.frequency.max(1));
     let mut next_report_instant = Instant::now() + freq_dur;
 
     let mut consecutive_errors: usize = 0;
@@ -63,20 +61,20 @@ pub fn run_sniffer_with_writer<S: PacketSource, W: Write>(
             }
         }
 
-        if config.periodic && Instant::now() >= next_report_instant {
+        if options.periodic && Instant::now() >= next_report_instant {
             let window_end_time = SystemTime::now();
             let window_duration_secs = window_start_instant.elapsed().as_secs_f64();
 
-            if config.emit_empty || !stats.is_empty() {
+            if options.emit_empty || !stats.is_empty() {
                 stats.set_capture_stats(source.stats());
                 let summary = stats.get_summary(
-                    config.frequency,
+                    options.frequency,
                     window_duration_secs,
                     window_start_time,
                     window_end_time,
                 );
 
-                let json = match config.format {
+                let json = match options.format {
                     OutputFormat::Pretty => serde_json::to_string_pretty(&summary),
                     OutputFormat::Ndjson => serde_json::to_string(&summary),
                 }
@@ -100,7 +98,7 @@ pub fn run_sniffer_with_writer<S: PacketSource, W: Write>(
                 debug!("Received packet: len={}", packet.data.len());
 
                 if let Some(datagram) = decode_datagram(source.datalink(), &packet.data) {
-                    if datagram.dst_port != config.port {
+                    if datagram.dst_port != options.port {
                         stats.record_non_matching_port();
                         continue;
                     }
@@ -154,14 +152,14 @@ pub fn run_sniffer_with_writer<S: PacketSource, W: Write>(
         }
     }
 
-    if config.emit_empty || !stats.is_empty() {
+    if options.emit_empty || !stats.is_empty() {
         let window_end_time = SystemTime::now();
         let window_duration_secs = window_start_instant.elapsed().as_secs_f64();
-        let interval_seconds = if config.periodic {
+        let interval_seconds = if options.periodic {
             window_duration_secs.round() as u64
         } else {
-            config
-                .effective_duration_secs()
+            options
+                .duration
                 .unwrap_or(window_duration_secs.round() as u64)
         };
 
@@ -173,7 +171,7 @@ pub fn run_sniffer_with_writer<S: PacketSource, W: Write>(
             window_end_time,
         );
 
-        let json = match config.format {
+        let json = match options.format {
             OutputFormat::Pretty => serde_json::to_string_pretty(&summary),
             OutputFormat::Ndjson => serde_json::to_string(&summary),
         }
@@ -201,7 +199,6 @@ fn write_summary_json<W: Write>(writer: &mut W, json: &str) -> Result<(), Sniffe
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::KeyBy;
     use crate::decode::Datalink;
     use crate::error::SnifferError;
     use crate::stats::JsonSummary;
@@ -238,25 +235,11 @@ mod tests {
         eth
     }
 
-    fn default_test_config() -> Config {
-        Config {
-            interface: Some("lo".to_string()),
-            port: 514,
+    fn default_test_options() -> RunOptions {
+        RunOptions {
             duration: Some(1),
-            interval: None,
-            debug: false,
-            periodic: false,
             frequency: 1,
-            max_hosts: 10_000,
-            sample_bytes: 256,
-            no_sample: false,
-            format: OutputFormat::Pretty,
-            emit_empty: false,
-            key_by: KeyBy::Hostname,
-            promisc: false,
-            buffer_size: 2097152,
-            snaplen: 65535,
-            read_pcap: None,
+            ..RunOptions::default()
         }
     }
 
@@ -301,7 +284,7 @@ mod tests {
     fn test_run_sniffer_basic() {
         init_test_logger();
         init_logger();
-        let config = default_test_config();
+        let config = default_test_options();
 
         let packet_data = create_test_frame(b"<13>Oct 11 22:14:15 mymachine su: su root");
         let packets = vec![Ok(Some(PacketData { data: packet_data })), Ok(None)];
@@ -327,7 +310,7 @@ mod tests {
 
     #[test]
     fn test_run_sniffer_ndjson_format() {
-        let mut config = default_test_config();
+        let mut config = default_test_options();
         config.format = OutputFormat::Ndjson;
 
         let packet_data = create_test_frame(b"<13>Oct 11 22:14:15 mymachine su: su root");
@@ -347,8 +330,7 @@ mod tests {
 
     #[test]
     fn test_run_sniffer_periodic() {
-        let mut config = default_test_config();
-        config.debug = true;
+        let mut config = default_test_options();
         config.periodic = true;
         config.frequency = 1;
 
@@ -374,7 +356,7 @@ mod tests {
 
     #[test]
     fn test_run_sniffer_invalid_packet() {
-        let config = default_test_config();
+        let config = default_test_options();
 
         let packets = vec![
             Ok(Some(PacketData {
@@ -400,7 +382,7 @@ mod tests {
     #[test]
     fn test_run_sniffer_persistent_error() {
         init_test_logger();
-        let mut config = default_test_config();
+        let mut config = default_test_options();
         config.duration = Some(10);
         config.frequency = 5;
 
@@ -422,7 +404,7 @@ mod tests {
 
     #[test]
     fn test_run_sniffer_shutdown_signal() {
-        let mut config = default_test_config();
+        let mut config = default_test_options();
         config.duration = Some(1000);
 
         let shutdown = Arc::new(AtomicBool::new(true)); // Already signalled
@@ -435,7 +417,7 @@ mod tests {
 
     #[test]
     fn test_run_sniffer_validation_error() {
-        let mut config = default_test_config();
+        let mut config = default_test_options();
         config.periodic = true;
         config.frequency = 10;
         config.duration = Some(2); // frequency > duration -> invalid!
@@ -471,7 +453,7 @@ mod tests {
 
     #[test]
     fn test_run_sniffer_broken_pipe_and_write_error() {
-        let config = default_test_config();
+        let config = default_test_options();
         let packet = create_test_frame(b"<13>test msg");
 
         // BrokenPipe returns Err(SnifferError::OutputClosed)
@@ -494,7 +476,7 @@ mod tests {
 
     #[test]
     fn test_run_sniffer_broken_pipe_periodic_indefinite_returns_promptly() {
-        let mut config = default_test_config();
+        let mut config = default_test_options();
         config.periodic = true;
         config.frequency = 1;
         config.duration = None; // Indefinite periodic
@@ -530,7 +512,7 @@ mod tests {
 
     #[test]
     fn test_run_sniffer_emit_empty_and_periodic_ndjson() {
-        let mut config = default_test_config();
+        let mut config = default_test_options();
         config.periodic = true;
         config.frequency = 1;
         config.format = OutputFormat::Ndjson;
@@ -549,7 +531,7 @@ mod tests {
 
     #[test]
     fn test_run_sniffer_top_level_wrapper() {
-        let mut config = default_test_config();
+        let mut config = default_test_options();
         config.duration = Some(1);
         let source = MockPacketSource::new(vec![]);
         let res = run_sniffer(config, source);
@@ -558,7 +540,7 @@ mod tests {
 
     #[test]
     fn test_run_sniffer_periodic_interval_report() {
-        let mut config = default_test_config();
+        let mut config = default_test_options();
         config.periodic = true;
         config.frequency = 1;
         config.duration = Some(2);
@@ -622,7 +604,7 @@ mod tests {
 
     #[test]
     fn test_run_sniffer_duration_timeout() {
-        let mut config = default_test_config();
+        let mut config = default_test_options();
         config.duration = Some(1);
 
         struct IdleSource;
@@ -644,7 +626,7 @@ mod tests {
 
     #[test]
     fn test_run_sniffer_duration_zero_shutdown() {
-        let mut config = default_test_config();
+        let mut config = default_test_options();
         config.duration = Some(0);
         config.emit_empty = true;
 
@@ -670,7 +652,7 @@ mod tests {
 
     #[test]
     fn test_run_sniffer_non_matching_port_dropped() {
-        let config = default_test_config(); // port: 514
+        let config = default_test_options(); // port: 514
         let frame514 = create_test_frame(b"<13>Oct 11 22:14:15 myhost syslog msg");
         let frame53 = create_test_frame_with_port(53, b"<13>Oct 11 22:14:15 dnsdecoy dns msg");
 

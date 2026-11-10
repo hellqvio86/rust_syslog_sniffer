@@ -102,6 +102,10 @@ pub fn run_sniffer_with_writer<S: PacketSource, W: Write>(
                 debug!("Received packet: len={}", packet.data.len());
 
                 if let Some(datagram) = decode_datagram(source.datalink(), &packet.data) {
+                    if datagram.dst_port != config.port {
+                        stats.record_non_matching_port();
+                        continue;
+                    }
                     stats.record_datagram_decoded();
                     if let Some(syslog) = parse_syslog_packet(datagram.payload) {
                         stats.add_entry(
@@ -217,6 +221,10 @@ mod tests {
     use std::io::Cursor;
 
     fn create_test_frame(payload: &[u8]) -> Vec<u8> {
+        create_test_frame_with_port(514, payload)
+    }
+
+    fn create_test_frame_with_port(port: u16, payload: &[u8]) -> Vec<u8> {
         let mut eth = Vec::new();
         eth.extend_from_slice(&[0x00; 12]);
         eth.extend_from_slice(&[0x08, 0x00]); // EtherType IPv4
@@ -234,7 +242,7 @@ mod tests {
 
         let udp_len = (8 + payload.len()) as u16;
         eth.extend_from_slice(&12345u16.to_be_bytes());
-        eth.extend_from_slice(&514u16.to_be_bytes());
+        eth.extend_from_slice(&port.to_be_bytes());
         eth.extend_from_slice(&udp_len.to_be_bytes());
         eth.extend_from_slice(&[0x00, 0x00]);
         eth.extend_from_slice(payload);
@@ -638,5 +646,32 @@ mod tests {
         let res =
             run_sniffer_with_writer(config, ShutdownSource(shutdown_clone), &mut buf, shutdown);
         assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_run_sniffer_non_matching_port_dropped() {
+        let config = default_test_config(); // port: 514
+        let frame514 = create_test_frame(b"<13>Oct 11 22:14:15 myhost syslog msg");
+        let frame53 = create_test_frame_with_port(53, b"<13>Oct 11 22:14:15 dnsdecoy dns msg");
+
+        let packets = vec![
+            Ok(Some(PacketData { data: frame514 })),
+            Ok(Some(PacketData { data: frame53 })),
+        ];
+
+        let source = MockPacketSource::new(packets);
+        let mut buf = Cursor::new(Vec::new());
+        let shutdown = Arc::new(AtomicBool::new(false));
+
+        let res = run_sniffer_with_writer(config, source, &mut buf, shutdown);
+        assert!(res.is_ok());
+
+        let output = String::from_utf8(buf.into_inner()).unwrap();
+        let summary: JsonSummary = serde_json::from_str(&output).expect("valid json");
+        assert_eq!(summary.packets_seen, 2);
+        assert_eq!(summary.datagrams_decoded, 1);
+        assert_eq!(summary.non_matching_port, 1);
+        assert!(summary.hosts.contains_key("myhost"));
+        assert!(!summary.hosts.contains_key("dnsdecoy"));
     }
 }

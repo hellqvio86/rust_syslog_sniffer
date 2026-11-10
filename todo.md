@@ -43,7 +43,7 @@
     - `proptest`/fuzz (see P2-3) with arbitrary bytes: `parse_syslog_packet` and `decode_datagram` never panic.
     - Consider a defensive `std::panic::catch_unwind` around the per-packet path that increments `parse_errors` (P1-9) and continues; do this *in addition to* the fix, not instead.
 
-- [ ] **P0-2 `--read-pcap` ignores `--port`** **(verified)**
+- [x] **P0-2 `--read-pcap` ignores `--port`** **(verified)**
   - **Where:** `src/capture.rs` (`FileCapture::new` applies no filter), `src/app.rs` (never compares `datagram.dst_port`).
   - **Problem:** with `--read-pcap file.pcap --port 514` a pcap containing a UDP/53 packet with a syslog-looking payload is counted as a syslog host (reproduced: host `dnsdecoy` from port 53 reported alongside `onport`). Offline mode therefore disagrees with live mode and with the documented behaviour of `--port`. Forensic runs over real captures will report every UDP payload that happens to start with `<`.
   - **Fix:** both of:

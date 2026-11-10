@@ -38,7 +38,7 @@ fn init_and_run(args: Config) -> ExitCode {
 fn run_app(args: Config, shutdown: Arc<AtomicBool>) -> ExitCode {
     let capture_source: Result<Box<dyn PacketSource>, _> =
         if let Some(ref pcap_file) = args.read_pcap {
-            FileCapture::new(pcap_file).map(|c| Box::new(c) as Box<dyn PacketSource>)
+            FileCapture::new(pcap_file, args.port).map(|c| Box::new(c) as Box<dyn PacketSource>)
         } else {
             let iface = args.interface.as_deref().unwrap_or("lo");
             PcapCapture::new(
@@ -101,27 +101,12 @@ mod tests {
 
     #[test]
     fn test_run_app_valid_pcap() {
-        let dummy_pkt = vec![0x00; 14];
-        let mut file_bytes = Vec::new();
-        // Global Header (24 bytes)
-        file_bytes.extend_from_slice(&0xa1b2c3d4u32.to_ne_bytes());
-        file_bytes.extend_from_slice(&2u16.to_ne_bytes());
-        file_bytes.extend_from_slice(&4u16.to_ne_bytes());
-        file_bytes.extend_from_slice(&0i32.to_ne_bytes());
-        file_bytes.extend_from_slice(&0u32.to_ne_bytes());
-        file_bytes.extend_from_slice(&65535u32.to_ne_bytes());
-        file_bytes.extend_from_slice(&1u32.to_ne_bytes());
-
-        // Packet Header (16 bytes)
-        file_bytes.extend_from_slice(&1700000000u32.to_ne_bytes());
-        file_bytes.extend_from_slice(&0u32.to_ne_bytes());
-        let len = dummy_pkt.len() as u32;
-        file_bytes.extend_from_slice(&len.to_ne_bytes());
-        file_bytes.extend_from_slice(&len.to_ne_bytes());
-        file_bytes.extend_from_slice(&dummy_pkt);
-
+        let dummy_pkt = syslog_sniffer::capture::test_helpers::craft_ethernet_ipv4_udp(
+            514,
+            b"<13>Oct 11 22:14:15 myhost test",
+        );
         let path = std::env::temp_dir().join(format!("test_main_pcap_{}.pcap", std::process::id()));
-        std::fs::write(&path, file_bytes).expect("write temp pcap");
+        syslog_sniffer::capture::test_helpers::write_test_pcap(&path, 1, &[&dummy_pkt]);
 
         let config = Config::parse_from(vec![
             "syslog_sniffer",

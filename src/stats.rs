@@ -87,6 +87,8 @@ pub struct JsonSummary {
     pub non_utf8: u64,
     #[serde(skip_serializing_if = "is_zero", default)]
     pub decode_errors: u64,
+    #[serde(skip_serializing_if = "is_zero", default)]
+    pub non_matching_port: u64,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub capture_stats: Option<KernelStats>,
 }
@@ -110,6 +112,7 @@ pub struct StatsTracker {
     no_hostname: u64,
     non_utf8: u64,
     decode_errors: u64,
+    non_matching_port: u64,
     capture_stats: Option<KernelStats>,
     last_cumulative_stats: Option<CaptureStats>,
 }
@@ -133,6 +136,7 @@ impl StatsTracker {
             no_hostname: 0,
             non_utf8: 0,
             decode_errors: 0,
+            non_matching_port: 0,
             capture_stats: None,
             last_cumulative_stats: None,
         }
@@ -148,6 +152,10 @@ impl StatsTracker {
 
     pub fn record_decode_error(&mut self) {
         self.decode_errors += 1;
+    }
+
+    pub fn record_non_matching_port(&mut self) {
+        self.non_matching_port += 1;
     }
 
     pub fn set_capture_stats(&mut self, stats: Option<CaptureStats>) {
@@ -245,6 +253,7 @@ impl StatsTracker {
         self.no_hostname = 0;
         self.non_utf8 = 0;
         self.decode_errors = 0;
+        self.non_matching_port = 0;
         self.capture_stats = None;
     }
 
@@ -281,6 +290,7 @@ impl StatsTracker {
             no_hostname: self.no_hostname,
             non_utf8: self.non_utf8,
             decode_errors: self.decode_errors,
+            non_matching_port: self.non_matching_port,
             capture_stats: self.capture_stats.clone(),
         }
     }

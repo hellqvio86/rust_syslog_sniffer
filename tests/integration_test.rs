@@ -1,7 +1,10 @@
+mod common;
+
 use clap::Parser;
+use common::{craft_ethernet_ipv4_udp, write_test_pcap};
 use syslog_sniffer::config::Config;
 use syslog_sniffer::parse_syslog_packet;
-use syslog_sniffer::stats::StatsTracker;
+use syslog_sniffer::stats::{JsonSummary, StatsTracker};
 
 #[test]
 fn test_full_flow_simulation() {
@@ -43,32 +46,61 @@ fn test_cli_binary_execution() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("syslog_sniffer"));
 
-    // Create a dummy pcap file to execute the full main() lifecycle
-    let dummy_pkt = vec![0x00; 14];
-    let mut file_bytes = Vec::new();
-    file_bytes.extend_from_slice(&0xa1b2c3d4u32.to_ne_bytes());
-    file_bytes.extend_from_slice(&2u16.to_ne_bytes());
-    file_bytes.extend_from_slice(&4u16.to_ne_bytes());
-    file_bytes.extend_from_slice(&0i32.to_ne_bytes());
-    file_bytes.extend_from_slice(&0u32.to_ne_bytes());
-    file_bytes.extend_from_slice(&65535u32.to_ne_bytes());
-    file_bytes.extend_from_slice(&1u32.to_ne_bytes());
-
-    file_bytes.extend_from_slice(&1700000000u32.to_ne_bytes());
-    file_bytes.extend_from_slice(&0u32.to_ne_bytes());
-    let len = dummy_pkt.len() as u32;
-    file_bytes.extend_from_slice(&len.to_be_bytes());
-    file_bytes.extend_from_slice(&len.to_be_bytes());
-    file_bytes.extend_from_slice(&dummy_pkt);
+    // Create a pcap with two packets: one to port 514, one to port 53 (P0-2 decoy test)
+    let pkt514 = craft_ethernet_ipv4_udp(514, b"<13>Oct 11 22:14:15 host514 test payload");
+    let pkt53 = craft_ethernet_ipv4_udp(53, b"<13>Oct 11 22:14:15 dnsdecoy decoy payload");
 
     let path = std::env::temp_dir().join(format!("test_int_pcap_{}.pcap", std::process::id()));
-    std::fs::write(&path, file_bytes).expect("write temp pcap");
+    write_test_pcap(&path, 1, &[&pkt514, &pkt53]);
 
-    let out = std::process::Command::new(bin)
+    // Test 1: Run with default port (514) -> only host514 should appear
+    let out514 = std::process::Command::new(bin)
         .args(["--read-pcap", path.to_str().unwrap(), "--interval", "1"])
         .output()
         .expect("run binary with pcap");
-    assert!(out.status.success());
+    assert!(out514.status.success());
+    let stdout514 = String::from_utf8_lossy(&out514.stdout);
+    let summary514: JsonSummary = serde_json::from_str(&stdout514).expect("parse stdout json");
+    assert!(summary514.hosts.contains_key("host514"));
+    assert!(!summary514.hosts.contains_key("dnsdecoy"));
+    assert_eq!(summary514.hosts["host514"].count, 1);
+
+    // Test 2: Run with --port 53 -> only dnsdecoy should appear
+    let out53 = std::process::Command::new(bin)
+        .args([
+            "--read-pcap",
+            path.to_str().unwrap(),
+            "--port",
+            "53",
+            "--interval",
+            "1",
+        ])
+        .output()
+        .expect("run binary with pcap port 53");
+    assert!(out53.status.success());
+    let stdout53 = String::from_utf8_lossy(&out53.stdout);
+    let summary53: JsonSummary = serde_json::from_str(&stdout53).expect("parse stdout json");
+    assert!(summary53.hosts.contains_key("dnsdecoy"));
+    assert!(!summary53.hosts.contains_key("host514"));
+    assert_eq!(summary53.hosts["dnsdecoy"].count, 1);
+
+    // Test 3: Unsupported datalink fails fast (P1-8)
+    let unsupp_path =
+        std::env::temp_dir().join(format!("test_int_unsupp_{}.pcap", std::process::id()));
+    write_test_pcap(&unsupp_path, 105, &[]);
+    let out_unsupp = std::process::Command::new(bin)
+        .args(["--read-pcap", unsupp_path.to_str().unwrap()])
+        .output()
+        .expect("run binary with unsupported linktype");
+    assert!(!out_unsupp.status.success());
+    let _ = std::fs::remove_file(&unsupp_path);
+
+    // Test 4: Missing file fails fast
+    let out_missing = std::process::Command::new(bin)
+        .args(["--read-pcap", "/non/existent/path/never/pcap.pcap"])
+        .output()
+        .expect("run binary with missing file");
+    assert!(!out_missing.status.success());
 
     let _ = std::fs::remove_file(&path);
 }

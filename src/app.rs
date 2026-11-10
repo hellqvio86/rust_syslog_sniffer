@@ -84,6 +84,7 @@ pub fn run_sniffer_with_writer_and_clock<S: PacketSource, W: Write, C: Clock>(
 
     let mut consecutive_errors: usize = 0;
     let mut last_error_log = clock.now() - Duration::from_secs(2);
+    let datalink = source.datalink();
 
     loop {
         if shutdown.load(Ordering::Relaxed) {
@@ -136,7 +137,7 @@ pub fn run_sniffer_with_writer_and_clock<S: PacketSource, W: Write, C: Clock>(
                 stats.record_packet_seen();
                 debug!("Received packet: len={}", packet.data.len());
 
-                match decode_datagram(source.datalink(), &packet.data) {
+                match decode_datagram(datalink, &packet.data) {
                     Ok(datagram) => {
                         if datagram.dst_port != options.port {
                             stats.record_non_matching_port();
@@ -149,7 +150,7 @@ pub fn run_sniffer_with_writer_and_clock<S: PacketSource, W: Write, C: Clock>(
                         match parsed {
                             Ok(Some(syslog)) => {
                                 stats.add_entry(
-                                    syslog.hostname.as_deref(),
+                                    syslog.hostname,
                                     datagram.src_ip,
                                     &syslog.message,
                                     syslog.is_non_utf8,
@@ -276,6 +277,10 @@ mod tests {
         create_test_frame_with_port(514, payload)
     }
 
+    fn pkt(data: Vec<u8>) -> PacketData<'static> {
+        PacketData::owned(data)
+    }
+
     fn create_test_frame_with_port(port: u16, payload: &[u8]) -> Vec<u8> {
         let mut eth = Vec::new();
         eth.extend_from_slice(&[0x00; 12]);
@@ -310,12 +315,12 @@ mod tests {
     }
 
     struct MockPacketSource {
-        packets: VecDeque<Result<Option<PacketData>, SnifferError>>,
+        packets: VecDeque<Result<Option<PacketData<'static>>, SnifferError>>,
         datalink: Datalink,
     }
 
     impl MockPacketSource {
-        fn new(packets: Vec<Result<Option<PacketData>, SnifferError>>) -> Self {
+        fn new(packets: Vec<Result<Option<PacketData<'static>>, SnifferError>>) -> Self {
             Self {
                 packets: packets.into(),
                 datalink: Datalink::Ethernet,
@@ -324,7 +329,7 @@ mod tests {
     }
 
     impl PacketSource for MockPacketSource {
-        fn next_packet(&mut self) -> Result<Option<PacketData>, SnifferError> {
+        fn next_packet(&mut self) -> Result<Option<PacketData<'_>>, SnifferError> {
             self.packets
                 .pop_front()
                 .unwrap_or(Err(SnifferError::CaptureClosed("exhausted".to_string())))
@@ -353,7 +358,7 @@ mod tests {
         let config = default_test_options();
 
         let packet_data = create_test_frame(b"<13>Oct 11 22:14:15 mymachine su: su root");
-        let packets = vec![Ok(Some(PacketData { data: packet_data })), Ok(None)];
+        let packets = vec![Ok(Some(pkt(packet_data))), Ok(None)];
 
         let source = MockPacketSource::new(packets);
         let mut buf = Cursor::new(Vec::new());
@@ -380,7 +385,7 @@ mod tests {
         config.format = OutputFormat::Ndjson;
 
         let packet_data = create_test_frame(b"<13>Oct 11 22:14:15 mymachine su: su root");
-        let packets = vec![Ok(Some(PacketData { data: packet_data })), Ok(None)];
+        let packets = vec![Ok(Some(pkt(packet_data))), Ok(None)];
 
         let source = MockPacketSource::new(packets);
         let mut buf = Cursor::new(Vec::new());
@@ -402,10 +407,8 @@ mod tests {
 
         let packet_data = create_test_frame(b"<13>Oct 11 22:14:15 mymachine su: su root");
         let packets = vec![
-            Ok(Some(PacketData {
-                data: packet_data.clone(),
-            })),
-            Ok(Some(PacketData { data: packet_data })),
+            Ok(Some(pkt(packet_data.clone()))),
+            Ok(Some(pkt(packet_data))),
             Ok(None),
         ];
 
@@ -425,10 +428,8 @@ mod tests {
         let config = default_test_options();
 
         let packets = vec![
-            Ok(Some(PacketData {
-                data: vec![0, 1, 2, 3],
-            })), // Invalid frame
-            Ok(Some(PacketData { data: vec![] })), // Empty
+            Ok(Some(pkt(vec![0, 1, 2, 3]))), // Invalid frame
+            Ok(Some(pkt(vec![]))),           // Empty
             Ok(None),
         ];
 
@@ -475,21 +476,13 @@ mod tests {
         let non_matching_packet = create_test_frame_with_port(9999, b"<13>wrong port");
 
         let packets = vec![
-            Ok(Some(PacketData { data: valid_packet })),
-            Ok(Some(PacketData {
-                data: empty_payload_packet,
-            })),
-            Ok(Some(PacketData {
-                data: whitespace_packet,
-            })),
-            Ok(Some(PacketData {
-                data: truncated_packet,
-            })),
-            Ok(Some(PacketData { data: tcp_packet })),
-            Ok(Some(PacketData { data: first_frag })),
-            Ok(Some(PacketData {
-                data: non_matching_packet,
-            })),
+            Ok(Some(pkt(valid_packet))),
+            Ok(Some(pkt(empty_payload_packet))),
+            Ok(Some(pkt(whitespace_packet))),
+            Ok(Some(pkt(truncated_packet))),
+            Ok(Some(pkt(tcp_packet))),
+            Ok(Some(pkt(first_frag))),
+            Ok(Some(pkt(non_matching_packet))),
             Ok(None),
         ];
 
@@ -522,7 +515,7 @@ mod tests {
         config.sample_bytes = 0;
 
         let packet_data = create_test_frame(b"<13>Oct 11 22:14:15 mymachine SECRET_PASSWORD_123");
-        let packets = vec![Ok(Some(PacketData { data: packet_data })), Ok(None)];
+        let packets = vec![Ok(Some(pkt(packet_data))), Ok(None)];
 
         let source = MockPacketSource::new(packets);
         let mut buf = Cursor::new(Vec::new());
@@ -543,7 +536,7 @@ mod tests {
         config.duration = Some(10);
         config.frequency = 5;
 
-        let packets: Vec<Result<Option<PacketData>, SnifferError>> = (0..50)
+        let packets: Vec<Result<Option<PacketData<'static>>, SnifferError>> = (0..50)
             .map(|_| Err(SnifferError::Capture("Simulated IO error".to_string())))
             .collect();
 
@@ -614,16 +607,14 @@ mod tests {
         let packet = create_test_frame(b"<13>test msg");
 
         // BrokenPipe returns Err(SnifferError::OutputClosed)
-        let source1 = MockPacketSource::new(vec![Ok(Some(PacketData {
-            data: packet.clone(),
-        }))]);
+        let source1 = MockPacketSource::new(vec![Ok(Some(pkt(packet.clone())))]);
         let writer1 = FailingWriter { broken_pipe: true };
         let shutdown1 = Arc::new(AtomicBool::new(false));
         let res1 = run_sniffer_with_writer(config.clone(), source1, writer1, shutdown1);
         assert!(matches!(res1, Err(SnifferError::OutputClosed)));
 
         // Other write error returns Err(SnifferError::Capture)
-        let source2 = MockPacketSource::new(vec![Ok(Some(PacketData { data: packet }))]);
+        let source2 = MockPacketSource::new(vec![Ok(Some(pkt(packet)))]);
         let writer2 = FailingWriter { broken_pipe: false };
         let shutdown2 = Arc::new(AtomicBool::new(false));
         let res2 = run_sniffer_with_writer(config, source2, writer2, shutdown2);
@@ -682,7 +673,7 @@ mod tests {
             clock: FakeClock,
         }
         impl PacketSource for PeriodicSleepingSource {
-            fn next_packet(&mut self) -> Result<Option<PacketData>, SnifferError> {
+            fn next_packet(&mut self) -> Result<Option<PacketData<'_>>, SnifferError> {
                 self.called += 1;
                 if self.called == 1 {
                     self.clock.advance(Duration::from_millis(1050));
@@ -749,13 +740,11 @@ mod tests {
             clock: FakeClock,
         }
         impl PacketSource for SleepingSource {
-            fn next_packet(&mut self) -> Result<Option<PacketData>, SnifferError> {
+            fn next_packet(&mut self) -> Result<Option<PacketData<'_>>, SnifferError> {
                 self.count += 1;
                 if self.count == 1 {
                     self.clock.advance(Duration::from_millis(1100));
-                    Ok(Some(PacketData {
-                        data: create_test_frame(b"<13>test periodic periodic"),
-                    }))
+                    Ok(Some(pkt(create_test_frame(b"<13>test periodic periodic"))))
                 } else {
                     self.clock.advance(Duration::from_millis(1000));
                     Ok(None)
@@ -823,7 +812,7 @@ mod tests {
         let clock = FakeClock::new();
         struct IdleSource(FakeClock);
         impl PacketSource for IdleSource {
-            fn next_packet(&mut self) -> Result<Option<PacketData>, SnifferError> {
+            fn next_packet(&mut self) -> Result<Option<PacketData<'_>>, SnifferError> {
                 self.0.advance(Duration::from_millis(500));
                 Ok(None)
             }
@@ -855,7 +844,7 @@ mod tests {
 
         struct ShutdownSource(Arc<AtomicBool>);
         impl PacketSource for ShutdownSource {
-            fn next_packet(&mut self) -> Result<Option<PacketData>, SnifferError> {
+            fn next_packet(&mut self) -> Result<Option<PacketData<'_>>, SnifferError> {
                 self.0.store(true, Ordering::Relaxed);
                 Ok(None)
             }
@@ -876,10 +865,7 @@ mod tests {
         let frame514 = create_test_frame(b"<13>Oct 11 22:14:15 myhost syslog msg");
         let frame53 = create_test_frame_with_port(53, b"<13>Oct 11 22:14:15 dnsdecoy dns msg");
 
-        let packets = vec![
-            Ok(Some(PacketData { data: frame514 })),
-            Ok(Some(PacketData { data: frame53 })),
-        ];
+        let packets = vec![Ok(Some(pkt(frame514))), Ok(Some(pkt(frame53)))];
 
         let source = MockPacketSource::new(packets);
         let mut buf = Cursor::new(Vec::new());

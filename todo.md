@@ -143,7 +143,7 @@
   - Add `proptest` (dev-dependency): arbitrary `Vec<u8>` into `parse_syslog_packet` and `decode_datagram` for each `Datalink`; invariants: no panic, `hostname.len() <= payload.len()`, decoded `payload` is a sub-slice of the frame, JSON output re-parses.
   - Add a `cargo-fuzz` target (`fuzz/fuzz_targets/parse.rs`, `decode.rs`) and a weekly scheduled workflow with a short time budget; seed corpus from the unit-test payloads.
 
-- [ ] **P2-4 Hot-path allocations remain** **(carried: P2-6, marked done but not)**
+- [x] **P2-4 Hot-path allocations remain** **(carried: P2-6, marked done but not)**
   - **Where:** `capture.rs` `packet.data.to_vec()` (copy per packet); `parser.rs` builds a full `String` for the message and another for the hostname per packet (up to ~64 KB); `stats.rs` `src_ip.to_string()` per packet when `--key-by source-ip`.
   - **Fix:** change `PacketSource::next_packet` to lend the buffer (callback `FnMut(&[u8])` or a `Cow`/lifetime-bound packet type); make the parser return borrowed views (`hostname: Option<&str>`, `message: Cow<'_, str>`); allocate only when inserting a new host (and then only `sample_bytes`); key by `IpAddr` for source-ip mode and stringify at report time.
   - **Acceptance:** a criterion benchmark or timed test over 1 M synthetic datagrams; record msgs/s before/after in the PR.

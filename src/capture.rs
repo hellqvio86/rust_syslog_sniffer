@@ -69,11 +69,9 @@ impl PcapCapture {
 }
 
 impl PacketSource for PcapCapture {
-    fn next_packet(&mut self) -> Result<Option<PacketData>, SnifferError> {
+    fn next_packet(&mut self) -> Result<Option<PacketData<'_>>, SnifferError> {
         match self.capture.next_packet() {
-            Ok(packet) => Ok(Some(PacketData {
-                data: packet.data.to_vec(),
-            })),
+            Ok(packet) => Ok(Some(PacketData::borrowed(packet.data))),
             Err(pcap::Error::TimeoutExpired) => Ok(None),
             Err(e) => Err(SnifferError::Pcap(e)),
         }
@@ -115,11 +113,9 @@ impl FileCapture {
 }
 
 impl PacketSource for FileCapture {
-    fn next_packet(&mut self) -> Result<Option<PacketData>, SnifferError> {
+    fn next_packet(&mut self) -> Result<Option<PacketData<'_>>, SnifferError> {
         match self.capture.next_packet() {
-            Ok(packet) => Ok(Some(PacketData {
-                data: packet.data.to_vec(),
-            })),
+            Ok(packet) => Ok(Some(PacketData::borrowed(packet.data))),
             Err(pcap::Error::NoMorePackets) => {
                 Err(SnifferError::CaptureClosed("End of pcap file".to_string()))
             }
@@ -294,7 +290,7 @@ mod tests {
         assert_eq!(file_cap.stats(), None);
 
         let p1 = file_cap.next_packet().expect("read packet 1");
-        assert_eq!(p1, Some(PacketData { data: dummy_pkt }));
+        assert_eq!(p1, Some(PacketData::borrowed(&dummy_pkt)));
 
         let p2 = file_cap.next_packet();
         assert!(matches!(p2, Err(SnifferError::CaptureClosed(_))));
@@ -313,12 +309,7 @@ mod tests {
         assert_eq!(file_cap.datalink(), Datalink::Ethernet);
 
         let p1 = file_cap.next_packet().expect("read packet 1");
-        assert_eq!(
-            p1,
-            Some(PacketData {
-                data: vlan_pkt.clone()
-            })
-        );
+        assert_eq!(p1, Some(PacketData::borrowed(&vlan_pkt)));
 
         // Decoy packet with port 9999 should be filtered out by BPF filter
         let p2 = file_cap.next_packet();

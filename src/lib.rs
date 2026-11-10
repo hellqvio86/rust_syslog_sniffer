@@ -13,10 +13,41 @@ pub use config::{Config, KeyBy, OutputFormat, RunOptions};
 pub use decode::{decode_datagram, Datagram, Datalink, DecodeError};
 pub use error::SnifferError;
 pub use parser::{parse_syslog_packet, SyslogPacket};
+use std::borrow::Cow;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct PacketData {
-    pub data: Vec<u8>,
+pub struct PacketData<'a> {
+    pub data: Cow<'a, [u8]>,
+}
+
+impl<'a> PacketData<'a> {
+    pub fn new(data: impl Into<Cow<'a, [u8]>>) -> Self {
+        Self { data: data.into() }
+    }
+
+    pub fn borrowed(data: &'a [u8]) -> Self {
+        Self {
+            data: Cow::Borrowed(data),
+        }
+    }
+
+    pub fn owned(data: Vec<u8>) -> Self {
+        Self {
+            data: Cow::Owned(data),
+        }
+    }
+}
+
+impl<'a> From<Vec<u8>> for PacketData<'a> {
+    fn from(data: Vec<u8>) -> Self {
+        Self::owned(data)
+    }
+}
+
+impl<'a> From<&'a [u8]> for PacketData<'a> {
+    fn from(data: &'a [u8]) -> Self {
+        Self::borrowed(data)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,7 +58,7 @@ pub struct CaptureStats {
 }
 
 pub trait PacketSource {
-    fn next_packet(&mut self) -> Result<Option<PacketData>, SnifferError>;
+    fn next_packet(&mut self) -> Result<Option<PacketData<'_>>, SnifferError>;
     fn datalink(&self) -> Datalink {
         Datalink::Raw
     }
@@ -40,7 +71,7 @@ pub trait PacketSource {
 }
 
 impl<T: PacketSource + ?Sized> PacketSource for Box<T> {
-    fn next_packet(&mut self) -> Result<Option<PacketData>, SnifferError> {
+    fn next_packet(&mut self) -> Result<Option<PacketData<'_>>, SnifferError> {
         (**self).next_packet()
     }
     fn datalink(&self) -> Datalink {
@@ -63,12 +94,10 @@ mod tests {
     }
 
     impl PacketSource for MinimalSource {
-        fn next_packet(&mut self) -> Result<Option<PacketData>, SnifferError> {
+        fn next_packet(&mut self) -> Result<Option<PacketData<'_>>, SnifferError> {
             if !self.returned {
                 self.returned = true;
-                Ok(Some(PacketData {
-                    data: vec![1, 2, 3],
-                }))
+                Ok(Some(PacketData::owned(vec![1, 2, 3])))
             } else {
                 Ok(None)
             }
@@ -83,12 +112,7 @@ mod tests {
         assert_eq!(source.stats(), None);
 
         let p1 = source.next_packet().unwrap();
-        assert_eq!(
-            p1,
-            Some(PacketData {
-                data: vec![1, 2, 3]
-            })
-        );
+        assert_eq!(p1, Some(PacketData::owned(vec![1, 2, 3])));
         let p2 = source.next_packet().unwrap();
         assert_eq!(p2, None);
     }

@@ -117,14 +117,24 @@ struct HostEntry {
     sources_truncated: bool,
 }
 
+#[derive(Clone, Debug)]
+enum HostStorage {
+    Hostname {
+        stats: BTreeMap<String, HostEntry>,
+        overflowed: std::collections::BTreeSet<String>,
+    },
+    SourceIp {
+        stats: BTreeMap<IpAddr, HostEntry>,
+        overflowed: std::collections::BTreeSet<IpAddr>,
+    },
+}
+
 pub struct StatsTracker {
     max_hosts: usize,
     max_sources: usize,
     sample_bytes: usize,
-    key_by: KeyBy,
-    stats: BTreeMap<String, HostEntry>,
+    storage: HostStorage,
     senders: BTreeMap<IpAddr, u64>,
-    overflowed_hosts_set: std::collections::BTreeSet<String>,
     packets_seen: u64,
     datagrams_decoded: u64,
     hosts_overflowed: u64,
@@ -149,14 +159,23 @@ impl Default for StatsTracker {
 
 impl StatsTracker {
     pub fn new(max_hosts: usize, max_sources: usize, sample_bytes: usize, key_by: KeyBy) -> Self {
+        let storage = match key_by {
+            KeyBy::Hostname => HostStorage::Hostname {
+                stats: BTreeMap::new(),
+                overflowed: std::collections::BTreeSet::new(),
+            },
+            KeyBy::SourceIp => HostStorage::SourceIp {
+                stats: BTreeMap::new(),
+                overflowed: std::collections::BTreeSet::new(),
+            },
+        };
+
         Self {
             max_hosts,
             max_sources,
             sample_bytes,
-            key_by,
-            stats: BTreeMap::new(),
+            storage,
             senders: BTreeMap::new(),
-            overflowed_hosts_set: std::collections::BTreeSet::new(),
             packets_seen: 0,
             datagrams_decoded: 0,
             hosts_overflowed: 0,
@@ -251,55 +270,88 @@ impl StatsTracker {
             self.senders_overflowed += 1;
         }
 
-        let key_str: String;
-        let host_key: &str = match self.key_by {
-            KeyBy::SourceIp => {
-                key_str = src_ip.to_string();
-                &key_str
-            }
-            KeyBy::Hostname => match hostname {
-                Some(h) if !h.trim().is_empty() => truncate_utf8(h, 255),
-                _ => {
-                    self.no_hostname += 1;
-                    return;
+        match &mut self.storage {
+            HostStorage::SourceIp { stats, overflowed } => {
+                if let Some(entry) = stats.get_mut(&src_ip) {
+                    entry.count += 1;
+                    if entry.sources.contains(&src_ip) {
+                        // already tracked
+                    } else if entry.sources.len() < 8 {
+                        entry.sources.push(src_ip);
+                    } else {
+                        entry.sources_truncated = true;
+                    }
+                } else if stats.len() < self.max_hosts {
+                    let sample = if self.sample_bytes > 0 {
+                        truncate_utf8(message, self.sample_bytes).to_string()
+                    } else {
+                        String::new()
+                    };
+                    stats.insert(
+                        src_ip,
+                        HostEntry {
+                            count: 1,
+                            sample,
+                            sources: vec![src_ip],
+                            sources_truncated: false,
+                        },
+                    );
+                } else {
+                    self.hosts_overflowed += 1;
+                    if overflowed.len() < 1000 {
+                        overflowed.insert(src_ip);
+                    }
                 }
-            },
-        };
-
-        if let Some(entry) = self.stats.get_mut(host_key) {
-            entry.count += 1;
-            if entry.sources.contains(&src_ip) {
-                // already tracked
-            } else if entry.sources.len() < 8 {
-                entry.sources.push(src_ip);
-            } else {
-                entry.sources_truncated = true;
             }
-        } else if self.stats.len() < self.max_hosts {
-            let sample = if self.sample_bytes > 0 {
-                truncate_utf8(message, self.sample_bytes).to_string()
-            } else {
-                String::new()
-            };
-            self.stats.insert(
-                host_key.to_string(),
-                HostEntry {
-                    count: 1,
-                    sample,
-                    sources: vec![src_ip],
-                    sources_truncated: false,
-                },
-            );
-        } else {
-            self.hosts_overflowed += 1;
-            if self.overflowed_hosts_set.len() < 1000 {
-                self.overflowed_hosts_set.insert(host_key.to_string());
+            HostStorage::Hostname { stats, overflowed } => {
+                let host_key = match hostname {
+                    Some(h) if !h.trim().is_empty() => truncate_utf8(h, 255),
+                    _ => {
+                        self.no_hostname += 1;
+                        return;
+                    }
+                };
+
+                if let Some(entry) = stats.get_mut(host_key) {
+                    entry.count += 1;
+                    if entry.sources.contains(&src_ip) {
+                        // already tracked
+                    } else if entry.sources.len() < 8 {
+                        entry.sources.push(src_ip);
+                    } else {
+                        entry.sources_truncated = true;
+                    }
+                } else if stats.len() < self.max_hosts {
+                    let sample = if self.sample_bytes > 0 {
+                        truncate_utf8(message, self.sample_bytes).to_string()
+                    } else {
+                        String::new()
+                    };
+                    stats.insert(
+                        host_key.to_string(),
+                        HostEntry {
+                            count: 1,
+                            sample,
+                            sources: vec![src_ip],
+                            sources_truncated: false,
+                        },
+                    );
+                } else {
+                    self.hosts_overflowed += 1;
+                    if overflowed.len() < 1000 && !overflowed.contains(host_key) {
+                        overflowed.insert(host_key.to_string());
+                    }
+                }
             }
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.stats.is_empty()
+        let stats_empty = match &self.storage {
+            HostStorage::Hostname { stats, .. } => stats.is_empty(),
+            HostStorage::SourceIp { stats, .. } => stats.is_empty(),
+        };
+        stats_empty
             && self.senders.is_empty()
             && self.packets_seen == 0
             && self.hosts_overflowed == 0
@@ -315,9 +367,17 @@ impl StatsTracker {
     }
 
     pub fn clear(&mut self) {
-        self.stats.clear();
+        match &mut self.storage {
+            HostStorage::Hostname { stats, overflowed } => {
+                stats.clear();
+                overflowed.clear();
+            }
+            HostStorage::SourceIp { stats, overflowed } => {
+                stats.clear();
+                overflowed.clear();
+            }
+        }
         self.senders.clear();
-        self.overflowed_hosts_set.clear();
         self.packets_seen = 0;
         self.datagrams_decoded = 0;
         self.hosts_overflowed = 0;
@@ -340,23 +400,46 @@ impl StatsTracker {
         window_start: SystemTime,
         window_end: SystemTime,
     ) -> JsonSummary {
-        let mut hosts_map = BTreeMap::new();
-        for (hostname, entry) in &self.stats {
-            hosts_map.insert(
-                hostname.clone(),
-                HostStats {
-                    count: entry.count,
-                    sample: entry.sample.clone(),
-                    sources: entry.sources.iter().map(|ip| ip.to_string()).collect(),
-                    sources_truncated: entry.sources_truncated,
-                },
-            );
-        }
+        let hosts_map: BTreeMap<String, HostStats> = match &self.storage {
+            HostStorage::Hostname { stats, .. } => stats
+                .iter()
+                .map(|(hostname, entry)| {
+                    (
+                        hostname.clone(),
+                        HostStats {
+                            count: entry.count,
+                            sample: entry.sample.clone(),
+                            sources: entry.sources.iter().map(|ip| ip.to_string()).collect(),
+                            sources_truncated: entry.sources_truncated,
+                        },
+                    )
+                })
+                .collect(),
+            HostStorage::SourceIp { stats, .. } => stats
+                .iter()
+                .map(|(ip, entry)| {
+                    (
+                        ip.to_string(),
+                        HostStats {
+                            count: entry.count,
+                            sample: entry.sample.clone(),
+                            sources: entry.sources.iter().map(|s_ip| s_ip.to_string()).collect(),
+                            sources_truncated: entry.sources_truncated,
+                        },
+                    )
+                })
+                .collect(),
+        };
 
         let mut senders_map = BTreeMap::new();
         for (ip, count) in &self.senders {
             senders_map.insert(ip.to_string(), *count);
         }
+
+        let distinct_hosts_overflowed = match &self.storage {
+            HostStorage::Hostname { overflowed, .. } => overflowed.len() as u64,
+            HostStorage::SourceIp { overflowed, .. } => overflowed.len() as u64,
+        };
 
         JsonSummary {
             schema_version: 1,
@@ -369,7 +452,7 @@ impl StatsTracker {
             hosts: hosts_map,
             hosts_overflowed: self.hosts_overflowed,
             packets_from_overflowed_hosts: self.hosts_overflowed,
-            distinct_hosts_overflowed: self.overflowed_hosts_set.len() as u64,
+            distinct_hosts_overflowed,
             senders: senders_map,
             senders_overflowed: self.senders_overflowed,
             no_hostname: self.no_hostname,
@@ -521,10 +604,10 @@ mod tests {
 
         // Host table was full, so real host overflowed
         assert_eq!(tracker.hosts_overflowed, 2);
-        assert!(!tracker.stats.contains_key("real-host"));
 
         // BUT real IP is tracked in senders!
         let summary = tracker.get_summary(10, 10.0, SystemTime::now(), SystemTime::now());
+        assert!(!summary.hosts.contains_key("real-host"));
         assert_eq!(summary.hosts_overflowed, 2);
         assert_eq!(summary.packets_from_overflowed_hosts, 2);
         assert_eq!(summary.distinct_hosts_overflowed, 2);

@@ -20,7 +20,7 @@ fn test_full_flow_simulation() {
     // 3. Track stats
     let mut stats = StatsTracker::default();
     stats.add_entry(
-        packet.hostname.as_deref(),
+        packet.hostname,
         "127.0.0.1".parse().unwrap(),
         &packet.message,
         packet.is_non_utf8,

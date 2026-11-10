@@ -1,7 +1,9 @@
+use std::borrow::Cow;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SyslogPacket {
-    pub message: String,
-    pub hostname: Option<String>,
+pub struct SyslogPacket<'a> {
+    pub message: Cow<'a, str>,
+    pub hostname: Option<&'a str>,
     pub is_non_utf8: bool,
 }
 
@@ -13,32 +15,48 @@ const MONTHS: [&[u8]; 12] = [
 ///
 /// Returns `None` only for empty payloads or payloads containing only whitespace/NULs.
 /// Non-UTF-8 payloads are decoded lossily with `is_non_utf8 = true`.
-pub fn parse_syslog_packet(packet: &[u8]) -> Option<SyslogPacket> {
+pub fn parse_syslog_packet<'a>(packet: &'a [u8]) -> Option<SyslogPacket<'a>> {
     if packet.is_empty() || packet.iter().all(|&b| b.is_ascii_whitespace() || b == 0) {
         return None;
     }
 
-    let is_non_utf8 = std::str::from_utf8(packet).is_err();
-    let lossy = String::from_utf8_lossy(packet);
-    let trimmed = lossy.trim_end_matches(['\r', '\n', '\0']);
-    if trimmed
-        .trim_matches(|c: char| c.is_whitespace() || c == '\0')
-        .is_empty()
-    {
-        return None;
+    match std::str::from_utf8(packet) {
+        Ok(s) => {
+            let trimmed = s.trim_end_matches(['\r', '\n', '\0']);
+            if trimmed
+                .trim_matches(|c: char| c.is_whitespace() || c == '\0')
+                .is_empty()
+            {
+                return None;
+            }
+            let hostname = extract_hostname(trimmed);
+            Some(SyslogPacket {
+                message: Cow::Borrowed(trimmed),
+                hostname,
+                is_non_utf8: false,
+            })
+        }
+        Err(e) => {
+            let lossy = String::from_utf8_lossy(packet);
+            let trimmed = lossy.trim_end_matches(['\r', '\n', '\0']);
+            if trimmed
+                .trim_matches(|c: char| c.is_whitespace() || c == '\0')
+                .is_empty()
+            {
+                return None;
+            }
+            let valid_prefix = std::str::from_utf8(&packet[..e.valid_up_to()]).unwrap_or("");
+            let hostname = extract_hostname(valid_prefix);
+            Some(SyslogPacket {
+                message: Cow::Owned(trimmed.to_string()),
+                hostname,
+                is_non_utf8: true,
+            })
+        }
     }
-
-    // Try parsing <PRI>
-    let hostname = extract_hostname(trimmed);
-
-    Some(SyslogPacket {
-        message: trimmed.to_string(),
-        hostname,
-        is_non_utf8,
-    })
 }
 
-fn extract_hostname(msg: &str) -> Option<String> {
+fn extract_hostname(msg: &str) -> Option<&str> {
     if !msg.starts_with('<') {
         return None;
     }
@@ -65,7 +83,7 @@ fn extract_hostname(msg: &str) -> Option<String> {
             if host == "-" || host.is_empty() {
                 return None;
             }
-            return Some(host.to_string());
+            return Some(host);
         }
         return None;
     }
@@ -81,7 +99,7 @@ fn extract_hostname(msg: &str) -> Option<String> {
         if ts.contains('T') && ts.len() >= 19 {
             if let Some(host) = parts.next() {
                 if is_valid_hostname(host) {
-                    return Some(host.to_string());
+                    return Some(host);
                 }
             }
             return None;
@@ -105,7 +123,7 @@ fn extract_hostname(msg: &str) -> Option<String> {
                 {
                     if let Some(candidate) = parts.next() {
                         if is_valid_hostname(candidate) {
-                            return Some(candidate.to_string());
+                            return Some(candidate);
                         }
                     }
                     return None;
@@ -136,7 +154,7 @@ mod tests {
     fn test_rfc5424_valid() {
         let data = b"<165>1 2026-11-08T22:14:15.003Z mymachine.example.com appname 123 ID47 - Test";
         let pkt = parse_syslog_packet(data).unwrap();
-        assert_eq!(pkt.hostname.as_deref(), Some("mymachine.example.com"));
+        assert_eq!(pkt.hostname, Some("mymachine.example.com"));
         assert_eq!(pkt.message, std::str::from_utf8(data).unwrap());
         assert!(!pkt.is_non_utf8);
     }
@@ -152,21 +170,21 @@ mod tests {
     fn test_rfc3164_with_hostname() {
         let data = b"<13>Oct 11 22:14:15 mymachine su: su root";
         let pkt = parse_syslog_packet(data).unwrap();
-        assert_eq!(pkt.hostname.as_deref(), Some("mymachine"));
+        assert_eq!(pkt.hostname, Some("mymachine"));
     }
 
     #[test]
     fn test_rfc3164_single_digit_day() {
         let data = b"<13>Oct  1 22:14:15 mymachine su: su root";
         let pkt = parse_syslog_packet(data).unwrap();
-        assert_eq!(pkt.hostname.as_deref(), Some("mymachine"));
+        assert_eq!(pkt.hostname, Some("mymachine"));
     }
 
     #[test]
     fn test_rfc3164_without_body() {
         let data = b"<13>Oct 11 22:14:15 myhost";
         let pkt = parse_syslog_packet(data).unwrap();
-        assert_eq!(pkt.hostname.as_deref(), Some("myhost"));
+        assert_eq!(pkt.hostname, Some("myhost"));
     }
 
     #[test]
@@ -188,7 +206,7 @@ mod tests {
     fn test_rfc3339_rsyslog_without_version() {
         let data = b"<34>2026-11-08T12:00:00.123456+01:00 myhost tag: msg";
         let pkt = parse_syslog_packet(data).unwrap();
-        assert_eq!(pkt.hostname.as_deref(), Some("myhost"));
+        assert_eq!(pkt.hostname, Some("myhost"));
     }
 
     #[test]
@@ -209,7 +227,7 @@ mod tests {
     fn test_non_utf8_decoded_lossy() {
         let data = b"<13>Oct 11 22:14:15 mymachine bad \xFF byte";
         let pkt = parse_syslog_packet(data).unwrap();
-        assert_eq!(pkt.hostname.as_deref(), Some("mymachine"));
+        assert_eq!(pkt.hostname, Some("mymachine"));
         assert!(pkt.is_non_utf8);
         assert!(pkt.message.contains("mymachine bad"));
     }
@@ -306,25 +324,25 @@ mod tests {
     fn test_parser_table_edge_cases() {
         // PRI <0>
         let pkt_pri0 = parse_syslog_packet(b"<0>Oct 11 22:14:15 myhost msg").unwrap();
-        assert_eq!(pkt_pri0.hostname.as_deref(), Some("myhost"));
+        assert_eq!(pkt_pri0.hostname, Some("myhost"));
 
         // PRI <1> (single digit)
         let pkt_pri1 = parse_syslog_packet(b"<1>Oct 11 22:14:15 myhost msg").unwrap();
-        assert_eq!(pkt_pri1.hostname.as_deref(), Some("myhost"));
+        assert_eq!(pkt_pri1.hostname, Some("myhost"));
 
         // PRI <191>
         let pkt_pri191 = parse_syslog_packet(b"<191>Oct 11 22:14:15 myhost msg").unwrap();
-        assert_eq!(pkt_pri191.hostname.as_deref(), Some("myhost"));
+        assert_eq!(pkt_pri191.hostname, Some("myhost"));
 
         // Hostname 255+ bytes
         let long_host = "h".repeat(300);
         let msg = format!("<13>Oct 11 22:14:15 {} msg", long_host);
         let pkt_long = parse_syslog_packet(msg.as_bytes()).unwrap();
-        assert_eq!(pkt_long.hostname.as_deref(), Some(long_host.as_str()));
+        assert_eq!(pkt_long.hostname, Some(long_host.as_str()));
 
         // RFC 5424 with structured data containing spaces
         let sdata_msg = b"<165>1 2026-11-08T22:14:15.003Z myhost app 123 ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"] Test message";
         let pkt_sdata = parse_syslog_packet(sdata_msg).unwrap();
-        assert_eq!(pkt_sdata.hostname.as_deref(), Some("myhost"));
+        assert_eq!(pkt_sdata.hostname, Some("myhost"));
     }
 }

@@ -12,7 +12,7 @@ proptest! {
     #[test]
     fn test_parse_syslog_packet_invariants(data in prop::collection::vec(any::<u8>(), 0..4096)) {
         if let Some(parsed) = parse_syslog_packet(&data) {
-            if let Some(ref hostname) = parsed.hostname {
+            if let Some(hostname) = parsed.hostname {
                 prop_assert!(hostname.len() <= data.len());
             }
             // Message string shouldn't exceed lossy UTF-8 expansion (up to 3x)

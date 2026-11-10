@@ -121,7 +121,7 @@
   - **Problem:** libpcap's plain `udp dst port` expression assumes untagged Ethernet; 802.1Q-tagged frames (promiscuous capture on a trunk, or drivers that don't strip tags) do not match, although `decode.rs` handles up to three tag types.
   - **Fix:** `udp dst port N or (vlan and udp dst port N)` for Ethernet datalinks (use `cap.get_datalink()` to decide); verify with a crafted tagged pcap replayed through the shared offline filter from P0-2.
 
-- [ ] **P1-12 Declared MSRV is wrong** **(verified)**
+- [x] **P1-12 Declared MSRV is wrong** **(verified)**
   - **Where:** `Cargo.toml` `rust-version = "1.80.0"`.
   - **Problem:** `cargo 1.80.1 check --locked` fails: `clap_builder 4.6.2` needs the `edition2024` cargo feature (Rust ≥ 1.85). Anyone building with the advertised MSRV, including distro packagers, fails.
   - **Fix:** set `rust-version = "1.85"` (or the highest dependency requirement; `cargo msrv find` to confirm) and add a CI job: `cargo +<msrv> check --locked --all-targets`.

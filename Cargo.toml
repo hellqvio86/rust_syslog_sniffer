@@ -8,7 +8,7 @@ repository = "https://github.com/hellqvio86/rust_syslog_sniffer"
 readme = "README.md"
 keywords = ["syslog", "sniffer", "pcap", "monitoring", "network"]
 categories = ["network-programming", "command-line-utilities"]
-rust-version = "1.80.0"
+rust-version = "1.85"
 
 [dependencies]
 clap = { version = "4.6.1", features = ["derive"] }

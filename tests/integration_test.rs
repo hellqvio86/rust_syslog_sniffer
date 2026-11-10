@@ -66,6 +66,7 @@ fn test_cli_binary_execution() {
     assert!(summary514.hosts.contains_key("host514"));
     assert!(!summary514.hosts.contains_key("dnsdecoy"));
     assert_eq!(summary514.hosts["host514"].count, 1);
+    assert_eq!(summary514.hosts["host514"].sources, vec!["192.168.1.10"]);
 
     // Test 2: Run with --port 53 -> only dnsdecoy should appear
     let out53 = std::process::Command::new(bin)
@@ -85,6 +86,7 @@ fn test_cli_binary_execution() {
     assert!(summary53.hosts.contains_key("dnsdecoy"));
     assert!(!summary53.hosts.contains_key("host514"));
     assert_eq!(summary53.hosts["dnsdecoy"].count, 1);
+    assert_eq!(summary53.hosts["dnsdecoy"].sources, vec!["192.168.1.10"]);
 
     // Test 3: Unsupported datalink fails fast (P1-8)
     let unsupp_path =

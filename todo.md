@@ -148,7 +148,7 @@
   - **Fix:** change `PacketSource::next_packet` to lend the buffer (callback `FnMut(&[u8])` or a `Cow`/lifetime-bound packet type); make the parser return borrowed views (`hostname: Option<&str>`, `message: Cow<'_, str>`); allocate only when inserting a new host (and then only `sample_bytes`); key by `IpAddr` for source-ip mode and stringify at report time.
   - **Acceptance:** a criterion benchmark or timed test over 1 M synthetic datagrams; record msgs/s before/after in the PR.
 
-- [ ] **P2-5 Integration test is hollow and writes a malformed pcap**
+- [x] **P2-5 Integration test is hollow and writes a malformed pcap**
   - **Where:** `tests/integration_test.rs` `test_cli_binary_execution`.
   - **Problem:** the pcap record header writes `caplen`/`len` with `to_be_bytes()` while every other field is native-endian (a typo; on little-endian hosts the lengths are byte-swapped). The 14-byte all-zero "frame" is not a datagram, and the assertion is only `status.success()`, so the test would pass whatever the output.
   - **Fix:** build a valid Ethernet/IPv4/UDP/syslog frame, assert on stdout JSON (host, count, source), and add the unsupported-linktype / bad-file failure cases. Extract the pcap-writer that is copy-pasted in `main.rs`, `capture.rs` and `integration_test.rs` into `tests/common/mod.rs` (or check in small `tests/fixtures/*.pcap` files).

@@ -3,6 +3,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Instant;
 use syslog_sniffer::app::run_sniffer_with_writer;
+use syslog_sniffer::capture::test_helpers::craft_ethernet_ipv4_udp;
 use syslog_sniffer::decode::Datalink;
 use syslog_sniffer::error::SnifferError;
 use syslog_sniffer::{KeyBy, OutputFormat, PacketData, PacketSource, RunOptions};
@@ -25,57 +26,6 @@ impl PacketSource for StreamingSyntheticSource {
     fn datalink(&self) -> Datalink {
         Datalink::Ethernet
     }
-}
-
-fn craft_ethernet_ipv4_udp(dst_port: u16, payload: &[u8]) -> Vec<u8> {
-    let mut pkt = Vec::new();
-    pkt.extend_from_slice(&[0x00, 0x11, 0x22, 0x33, 0x44, 0x55]);
-    pkt.extend_from_slice(&[0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb]);
-    pkt.extend_from_slice(&[0x08, 0x00]); // IPv4
-
-    let total_len = (20 + 8 + payload.len()) as u16;
-    let mut ip_hdr = vec![
-        0x45,
-        0x00,
-        (total_len >> 8) as u8,
-        (total_len & 0xff) as u8,
-        0x00,
-        0x01,
-        0x00,
-        0x00,
-        64,
-        17, // TTL=64, UDP=17
-        0x00,
-        0x00, // checksum placeholder
-        192,
-        168,
-        1,
-        10,
-        192,
-        168,
-        1,
-        1,
-    ];
-    let mut sum: u32 = 0;
-    for chunk in ip_hdr.chunks(2) {
-        let word = u16::from_be_bytes([chunk[0], chunk[1]]);
-        sum = sum.wrapping_add(word as u32);
-    }
-    while (sum >> 16) > 0 {
-        sum = (sum & 0xffff) + (sum >> 16);
-    }
-    let csum = !(sum as u16);
-    ip_hdr[10] = (csum >> 8) as u8;
-    ip_hdr[11] = (csum & 0xff) as u8;
-    pkt.extend_from_slice(&ip_hdr);
-
-    let udp_len = (8 + payload.len()) as u16;
-    pkt.extend_from_slice(&12345u16.to_be_bytes());
-    pkt.extend_from_slice(&dst_port.to_be_bytes());
-    pkt.extend_from_slice(&udp_len.to_be_bytes());
-    pkt.extend_from_slice(&0u16.to_be_bytes());
-    pkt.extend_from_slice(payload);
-    pkt
 }
 
 #[test]

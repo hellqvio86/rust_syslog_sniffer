@@ -37,7 +37,12 @@ pub fn run_sniffer_with_writer<S: PacketSource, W: Write>(
 
     let total_duration = options.duration.map(Duration::from_secs);
     let sample_bytes = options.sample_bytes;
-    let mut stats = StatsTracker::new(options.max_hosts, sample_bytes, options.key_by);
+    let mut stats = StatsTracker::new(
+        options.max_hosts,
+        options.max_sources,
+        sample_bytes,
+        options.key_by,
+    );
 
     let start_instant = Instant::now();
     let mut window_start_instant = Instant::now();

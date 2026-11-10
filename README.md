@@ -110,6 +110,7 @@ Options:
       --periodic                Enable periodic windowed summary output
       --frequency <SECS>        Periodic output interval in seconds (requires --periodic, default: 5)
       --max-hosts <N>           Maximum distinct host entries to track in memory (default: 10000)
+      --max-sources <N>         Maximum distinct sender IPs to track in memory (default: 10000)
       --sample-bytes <N>        Maximum sample message bytes to store per host (default: 256; 0 to disable)
       --no-sample               Disable message samples in output (equivalent to --sample-bytes 0)
       --format <pretty|ndjson>  JSON output format: pretty or ndjson (default: pretty)
@@ -163,7 +164,11 @@ Options:
 
 - **UDP Only**: Listens to UDP syslog traffic (RFC 3164 and RFC 5424). TCP/TLS syslog (RFC 5425 / RFC 6587) and RELP are not captured.
 - **IP Fragmentation**: Only initial UDP packet fragments carrying the UDP header are parsed; subsequent non-initial fragments do not carry UDP port headers and are ignored.
-- **Self-Reported Hostnames**: Hostnames parsed from syslog payloads are self-reported by clients and can be spoofed. The `sources` field records the actual observed IP address(es) sending traffic for each hostname. Alternatively, use `--key-by source-ip` to index directly by verified IP.
+- **Self-Reported Hostnames & Table Evasion**: Hostnames parsed from syslog payloads are self-reported by clients and can be spoofed. An attacker generating traffic with arbitrary hostnames could attempt to fill the host table up to `--max-hosts` to obscure legitimate systems in the overflow counts. To mitigate this evasion risk:
+  - An independent, bounded per-source-IP table (`senders: {ip: count}`) tracks sending hosts up to `--max-sources` (default: 10,000) regardless of `--key-by`.
+  - The `sources` array records actual observed IP addresses for each host entry.
+  - The JSON summary reports both packet counts (`packets_from_overflowed_hosts`, also mirrored in `hosts_overflowed`) and best-effort unique host counts (`distinct_hosts_overflowed`).
+  - To index statistics directly by verified network sender rather than claimed hostnames, use `--key-by source-ip`.
 - **Privileges**: Packet capture requires the `CAP_NET_RAW` Linux capability (or running as root).
 - **Log Confidentiality**: Message samples can contain sensitive data (usernames, internal IPs). Use `--no-sample` or `--sample-bytes 0` when shipping reports to shared sinks.
 

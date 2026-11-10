@@ -82,6 +82,14 @@ pub struct JsonSummary {
     #[serde(skip_serializing_if = "is_zero", default)]
     pub hosts_overflowed: u64,
     #[serde(skip_serializing_if = "is_zero", default)]
+    pub packets_from_overflowed_hosts: u64,
+    #[serde(skip_serializing_if = "is_zero", default)]
+    pub distinct_hosts_overflowed: u64,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
+    pub senders: BTreeMap<String, u64>,
+    #[serde(skip_serializing_if = "is_zero", default)]
+    pub senders_overflowed: u64,
+    #[serde(skip_serializing_if = "is_zero", default)]
     pub no_hostname: u64,
     #[serde(skip_serializing_if = "is_zero", default)]
     pub non_utf8: u64,
@@ -103,12 +111,16 @@ struct HostEntry {
 
 pub struct StatsTracker {
     max_hosts: usize,
+    max_sources: usize,
     sample_bytes: usize,
     key_by: KeyBy,
     stats: BTreeMap<String, HostEntry>,
+    senders: BTreeMap<IpAddr, u64>,
+    overflowed_hosts_set: std::collections::BTreeSet<String>,
     packets_seen: u64,
     datagrams_decoded: u64,
     hosts_overflowed: u64,
+    senders_overflowed: u64,
     no_hostname: u64,
     non_utf8: u64,
     decode_errors: u64,
@@ -119,20 +131,24 @@ pub struct StatsTracker {
 
 impl Default for StatsTracker {
     fn default() -> Self {
-        Self::new(10_000, 256, KeyBy::Hostname)
+        Self::new(10_000, 10_000, 256, KeyBy::Hostname)
     }
 }
 
 impl StatsTracker {
-    pub fn new(max_hosts: usize, sample_bytes: usize, key_by: KeyBy) -> Self {
+    pub fn new(max_hosts: usize, max_sources: usize, sample_bytes: usize, key_by: KeyBy) -> Self {
         Self {
             max_hosts,
+            max_sources,
             sample_bytes,
             key_by,
             stats: BTreeMap::new(),
+            senders: BTreeMap::new(),
+            overflowed_hosts_set: std::collections::BTreeSet::new(),
             packets_seen: 0,
             datagrams_decoded: 0,
             hosts_overflowed: 0,
+            senders_overflowed: 0,
             no_hostname: 0,
             non_utf8: 0,
             decode_errors: 0,
@@ -192,6 +208,15 @@ impl StatsTracker {
             self.non_utf8 += 1;
         }
 
+        // Track independent per-source-IP statistics
+        if let Some(sc) = self.senders.get_mut(&src_ip) {
+            *sc += 1;
+        } else if self.senders.len() < self.max_sources {
+            self.senders.insert(src_ip, 1);
+        } else {
+            self.senders_overflowed += 1;
+        }
+
         let key_str: String;
         let host_key: &str = match self.key_by {
             KeyBy::SourceIp => {
@@ -233,23 +258,32 @@ impl StatsTracker {
             );
         } else {
             self.hosts_overflowed += 1;
+            if self.overflowed_hosts_set.len() < 1000 {
+                self.overflowed_hosts_set.insert(host_key.to_string());
+            }
         }
     }
 
     pub fn is_empty(&self) -> bool {
         self.stats.is_empty()
+            && self.senders.is_empty()
             && self.packets_seen == 0
             && self.hosts_overflowed == 0
+            && self.senders_overflowed == 0
             && self.no_hostname == 0
             && self.non_utf8 == 0
             && self.decode_errors == 0
+            && self.non_matching_port == 0
     }
 
     pub fn clear(&mut self) {
         self.stats.clear();
+        self.senders.clear();
+        self.overflowed_hosts_set.clear();
         self.packets_seen = 0;
         self.datagrams_decoded = 0;
         self.hosts_overflowed = 0;
+        self.senders_overflowed = 0;
         self.no_hostname = 0;
         self.non_utf8 = 0;
         self.decode_errors = 0;
@@ -277,6 +311,11 @@ impl StatsTracker {
             );
         }
 
+        let mut senders_map = BTreeMap::new();
+        for (ip, count) in &self.senders {
+            senders_map.insert(ip.to_string(), *count);
+        }
+
         JsonSummary {
             schema_version: 1,
             interval_seconds,
@@ -287,6 +326,10 @@ impl StatsTracker {
             datagrams_decoded: self.datagrams_decoded,
             hosts: hosts_map,
             hosts_overflowed: self.hosts_overflowed,
+            packets_from_overflowed_hosts: self.hosts_overflowed,
+            distinct_hosts_overflowed: self.overflowed_hosts_set.len() as u64,
+            senders: senders_map,
+            senders_overflowed: self.senders_overflowed,
             no_hostname: self.no_hostname,
             non_utf8: self.non_utf8,
             decode_errors: self.decode_errors,
@@ -342,7 +385,7 @@ mod tests {
 
     #[test]
     fn test_key_by_source_ip() {
-        let mut tracker = StatsTracker::new(10_000, 256, KeyBy::SourceIp);
+        let mut tracker = StatsTracker::new(10_000, 10_000, 256, KeyBy::SourceIp);
         tracker.add_entry(
             Some("ignored_hostname"),
             ip(192, 168, 1, 50),
@@ -380,7 +423,7 @@ mod tests {
 
     #[test]
     fn test_bounded_memory_max_hosts_overflow() {
-        let mut tracker = StatsTracker::new(2, 256, KeyBy::Hostname);
+        let mut tracker = StatsTracker::new(2, 10_000, 256, KeyBy::Hostname);
         tracker.add_entry(Some("host1"), ip(10, 0, 0, 1), "msg", false);
         tracker.add_entry(Some("host2"), ip(10, 0, 0, 2), "msg", false);
         tracker.add_entry(Some("host3"), ip(10, 0, 0, 3), "msg", false);
@@ -389,11 +432,13 @@ mod tests {
         let summary = tracker.get_summary(10, 10.0, now, now);
         assert_eq!(summary.hosts.len(), 2);
         assert_eq!(summary.hosts_overflowed, 1);
+        assert_eq!(summary.packets_from_overflowed_hosts, 1);
+        assert_eq!(summary.distinct_hosts_overflowed, 1);
     }
 
     #[test]
     fn test_sample_bytes_truncation() {
-        let mut tracker = StatsTracker::new(10, 5, KeyBy::Hostname);
+        let mut tracker = StatsTracker::new(10, 10_000, 5, KeyBy::Hostname);
         tracker.add_entry(Some("host1"), ip(10, 0, 0, 1), "hello world", false);
         let now = SystemTime::now();
         let summary = tracker.get_summary(10, 10.0, now, now);
@@ -402,11 +447,44 @@ mod tests {
 
     #[test]
     fn test_sample_bytes_zero_disables_sample() {
-        let mut tracker = StatsTracker::new(10, 0, KeyBy::Hostname);
+        let mut tracker = StatsTracker::new(10, 10_000, 0, KeyBy::Hostname);
         tracker.add_entry(Some("host1"), ip(10, 0, 0, 1), "hello world", false);
         let now = SystemTime::now();
         let summary = tracker.get_summary(10, 10.0, now, now);
         assert_eq!(summary.hosts.get("host1").unwrap().sample, "");
+    }
+
+    #[test]
+    fn test_sender_ip_tracking_when_hosts_overflowed() {
+        let mut tracker = StatsTracker::new(10_000, 10_000, 256, KeyBy::Hostname);
+        let attacker_ip: IpAddr = "192.0.2.1".parse().unwrap();
+
+        // 10,000 spoofed hostnames from attacker_ip fills the host table
+        for i in 0..10_000 {
+            let host = format!("spoofed-host-{}", i);
+            tracker.add_entry(Some(&host), attacker_ip, "msg", false);
+        }
+
+        // Another spoofed hostname from attacker_ip overflows the host table
+        tracker.add_entry(Some("spoofed-host-overflow"), attacker_ip, "msg", false);
+        assert_eq!(tracker.hosts_overflowed, 1);
+
+        // Real host from a distinct IP
+        let real_ip: IpAddr = "198.51.100.42".parse().unwrap();
+        tracker.add_entry(Some("real-host"), real_ip, "msg", false);
+
+        // Host table was full, so real host overflowed
+        assert_eq!(tracker.hosts_overflowed, 2);
+        assert!(!tracker.stats.contains_key("real-host"));
+
+        // BUT real IP is tracked in senders!
+        let summary = tracker.get_summary(10, 10.0, SystemTime::now(), SystemTime::now());
+        assert_eq!(summary.hosts_overflowed, 2);
+        assert_eq!(summary.packets_from_overflowed_hosts, 2);
+        assert_eq!(summary.distinct_hosts_overflowed, 2);
+        assert!(summary.senders.contains_key("198.51.100.42"));
+        assert_eq!(summary.senders["198.51.100.42"], 1);
+        assert_eq!(summary.senders["192.0.2.1"], 10_001);
     }
 
     #[test]

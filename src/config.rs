@@ -23,6 +23,7 @@ pub struct RunOptions {
     pub periodic: bool,
     pub frequency: u64,
     pub max_hosts: usize,
+    pub max_sources: usize,
     pub sample_bytes: usize,
     pub format: OutputFormat,
     pub emit_empty: bool,
@@ -37,6 +38,7 @@ impl Default for RunOptions {
             periodic: false,
             frequency: 5,
             max_hosts: 10_000,
+            max_sources: 10_000,
             sample_bytes: 256,
             format: OutputFormat::Pretty,
             emit_empty: false,
@@ -53,6 +55,7 @@ impl From<&Config> for RunOptions {
             periodic: config.periodic,
             frequency: config.frequency,
             max_hosts: config.max_hosts,
+            max_sources: config.max_sources,
             sample_bytes: config.effective_sample_bytes(),
             format: config.format,
             emit_empty: config.emit_empty,
@@ -139,6 +142,14 @@ pub struct Config {
         help = "Maximum number of distinct hosts to track in memory (default: 10000)"
     )]
     pub max_hosts: usize,
+
+    #[arg(
+        long,
+        default_value_t = 10_000,
+        value_parser = parse_max_hosts,
+        help = "Maximum number of distinct sender IPs to track in memory (default: 10000)"
+    )]
+    pub max_sources: usize,
 
     #[arg(
         long,

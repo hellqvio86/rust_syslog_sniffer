@@ -76,7 +76,7 @@
   - **Fix:** default to `Warn`; `--debug` → `Debug`; honour `RUST_LOG` as today. Update the e2e "quiet" checks (grep for `ERROR|panicked`, allow `WARN` only where expected).
   - **Acceptance:** test (or e2e) that `--interval 1` emits the deprecation line on stderr by default.
 
-- [ ] **P1-4 Attacker can hide real hosts by filling the host table; `hosts_overflowed` is mis-named**
+- [x] **P1-4 Attacker can hide real hosts by filling the host table; `hosts_overflowed` is mis-named**
   - **Where:** `src/stats.rs` `add_entry`.
   - **Problem:** keys are self-reported hostnames. A sender that spoofs 10 000 distinct hostnames at the start of a window fills the table; every later (real) host is counted only in `hosts_overflowed`, with no per-host or per-source detail. Also, the counter increments **per packet**, not per distinct host, so the name is misleading.
   - **Fix:**

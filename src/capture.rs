@@ -61,8 +61,6 @@ impl PcapCapture {
         let filter = bpf_filter(port, datalink);
         cap.filter(&filter, true).map_err(SnifferError::Pcap)?;
 
-        let cap = cap.setnonblock().map_err(SnifferError::Pcap)?;
-
         Ok(Self {
             capture: cap,
             datalink,

@@ -134,7 +134,7 @@
   - `cargo test --lib` took **7.9 s** (round-1 acceptance: well under 1 s). Causes: `test_run_sniffer_periodic_interval_report` sleeps 1.1 s plus others, and every `Ok(None)` sleeps 10 ms in real time.
   - **Fix:** inject a `Clock` trait (`now() -> Instant`, `sleep(Duration)`, `system_now()`), use a fake in tests; keep the real one in `main`. Target: lib tests < 1 s.
 
-- [ ] **P2-2 Capture loop: finish the busy-loop fix properly** **(carried: P0-2)**
+- [x] **P2-2 Capture loop: finish the busy-loop fix properly** **(carried: P0-2)**
   - **Where:** `src/capture.rs` still calls `setnonblock()` and `src/app.rs` sleeps 10 ms on `Ok(None)`.
   - **Problem:** the 250 ms read timeout is inert in non-blocking mode; the loop polls at ~100 Hz and adds up to 10 ms latency. CPU is fine today (measured ~0.5%), but this is a workaround, not the intended design.
   - **Fix:** remove `setnonblock()` and the 10 ms sleep; rely on blocking reads with the 250 ms timeout so shutdown/report deadlines still fire. Re-measure idle CPU and record before/after in the PR. `(verify)` behaviour of `immediate_mode(true)` + timeout on Linux (TPACKET_V3) and on the armv7 build.

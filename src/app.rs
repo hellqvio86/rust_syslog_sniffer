@@ -188,8 +188,6 @@ pub fn run_sniffer_with_writer_and_clock<S: PacketSource, W: Write, C: Clock>(
             }
             Ok(None) => {
                 consecutive_errors = 0;
-                // Idle / read timeout: sleep briefly to avoid busy-loop
-                clock.sleep(Duration::from_millis(10));
                 continue;
             }
             Err(SnifferError::CaptureClosed(_)) => {

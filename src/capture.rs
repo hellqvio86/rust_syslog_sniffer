@@ -61,6 +61,8 @@ impl PcapCapture {
         let filter = bpf_filter(port, datalink);
         cap.filter(&filter, true).map_err(SnifferError::Pcap)?;
 
+        let cap = cap.setnonblock().map_err(SnifferError::Pcap)?;
+
         Ok(Self {
             capture: cap,
             datalink,
@@ -380,5 +382,43 @@ mod tests {
                 assert!(!e.to_string().is_empty());
             }
         }
+    }
+
+    #[test]
+    #[ignore = "requires root / CAP_NET_RAW and live loopback interface"]
+    fn test_root_live_capture_loopback() {
+        let sock = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind local udp");
+        let port = sock.local_addr().unwrap().port();
+        drop(sock);
+
+        let mut cap = PcapCapture::new("lo", port, false, 65535, 1024 * 1024)
+            .expect("open live capture on lo");
+
+        let sender = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind sender");
+        let payload = b"<13>Oct 11 22:14:15 livehost test root loopback message\n";
+        sender
+            .send_to(payload, format!("127.0.0.1:{}", port))
+            .expect("send live datagram");
+
+        let datalink = cap.datalink();
+        let mut captured_bytes = None;
+        for _ in 0..10 {
+            if let Ok(Some(pkt)) = cap.next_packet() {
+                captured_bytes = Some(pkt.data.to_vec());
+                break;
+            }
+        }
+
+        let pkt_data = captured_bytes.expect("should have captured sent datagram on lo");
+        let datagram = crate::decode_datagram(datalink, &pkt_data).expect("decode datagram");
+        assert_eq!(datagram.dst_port, port);
+        assert_eq!(
+            datagram.src_ip,
+            std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1))
+        );
+
+        let parsed = crate::parse_syslog_packet(datagram.payload).expect("parse syslog");
+        assert_eq!(parsed.hostname, Some("livehost"));
+        assert!(parsed.message.contains("test root loopback message"));
     }
 }

@@ -113,6 +113,9 @@ jobs:
     - name: Run unit tests
       run: cargo test
 
+    - name: Run root/live capture tests
+      run: sudo -E cargo test -- --ignored
+
   msrv:
     name: Check MSRV (1.85)
     if: github.event_name != 'release'

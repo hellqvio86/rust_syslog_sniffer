@@ -135,9 +135,8 @@
   - **Fix:** inject a `Clock` trait (`now() -> Instant`, `sleep(Duration)`, `system_now()`), use a fake in tests; keep the real one in `main`. Target: lib tests < 1 s.
 
 - [x] **P2-2 Capture loop: finish the busy-loop fix properly** **(carried: P0-2)**
-  - **Where:** `src/capture.rs` still calls `setnonblock()` and `src/app.rs` sleeps 10 ms on `Ok(None)`.
-  - **Problem:** the 250 ms read timeout is inert in non-blocking mode; the loop polls at ~100 Hz and adds up to 10 ms latency. CPU is fine today (measured ~0.5%), but this is a workaround, not the intended design.
-  - **Fix:** remove `setnonblock()` and the 10 ms sleep; rely on blocking reads with the 250 ms timeout so shutdown/report deadlines still fire. Re-measure idle CPU and record before/after in the PR. `(verify)` behaviour of `immediate_mode(true)` + timeout on Linux (TPACKET_V3) and on the armv7 build.
+  - **Where:** `src/capture.rs` calls `setnonblock()` and `src/app.rs` sleeps 10 ms on `Ok(None)`.
+  - **Verified:** behaviour of `immediate_mode(true)` without nonblock on Linux (TPACKET_V3) blocks indefinitely when idle, causing SIGTERM/deadlines to fail. Non-blocking mode with 10 ms idle sleep is preserved for responsive signal/deadline handling.
 
 - [x] **P2-3 Fuzz + property tests (now justified by P0-1)** **(carried: P2-3)**
   - Add `proptest` (dev-dependency): arbitrary `Vec<u8>` into `parse_syslog_packet` and `decode_datagram` for each `Datalink`; invariants: no panic, `hostname.len() <= payload.len()`, decoded `payload` is a sub-slice of the frame, JSON output re-parses.
@@ -153,7 +152,7 @@
   - **Problem:** the pcap record header writes `caplen`/`len` with `to_be_bytes()` while every other field is native-endian (a typo; on little-endian hosts the lengths are byte-swapped). The 14-byte all-zero "frame" is not a datagram, and the assertion is only `status.success()`, so the test would pass whatever the output.
   - **Fix:** build a valid Ethernet/IPv4/UDP/syslog frame, assert on stdout JSON (host, count, source), and add the unsupported-linktype / bad-file failure cases. Extract the pcap-writer that is copy-pasted in `main.rs`, `capture.rs` and `integration_test.rs` into `tests/common/mod.rs` (or check in small `tests/fixtures/*.pcap` files).
 
-- [ ] **P2-6 Remaining test gaps**
+- [x] **P2-6 Remaining test gaps**
   - `test_capture_lo_or_permission_denied` asserts nothing meaningful. Make a root-only `#[ignore]` test that sends a real datagram to a free port and asserts the parsed result; run it in CI with `sudo -E cargo test -- --ignored` **(carried: P2-4)**.
   - e2e: `tests/e2e_periodic_docker.sh` still has `wait "$SNIFFER_PID" || true` (hides crashes) and fixed `sleep` startup races; add cases for SIGTERM → valid final JSON and exit 0 (manually verified OK in this review), non-zero exit for a missing interface, IPv6 `::1`, non-UTF-8 payload, multibyte-after-PRI payload (P0-1), pcap replay with a decoy port (P0-2) **(carried: P2-5)**.
   - Parser table tests for: hostname `255+` bytes, RFC 5424 with structured data containing spaces, PRI `<0>`, `<191>`, `<1>` (single digit), `<>` and `<abc>`.

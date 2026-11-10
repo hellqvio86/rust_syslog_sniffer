@@ -1,297 +1,247 @@
-# TODO — syslog_sniffer critical review
+# TODO — syslog_sniffer critical review (round 2)
 
-- **Project:** `syslog_sniffer` v0.1.40 (Rust, libpcap via `pcap` crate, Docker + GitHub Actions release pipeline)
-- **Reviewed commit:** `c104193` (2026-11-08)
-- **Method:** static read of every source, script, workflow and doc. **Nothing was compiled or run** (no Rust toolchain in the review sandbox). Items tagged `(verify)` rest on library/runtime behaviour that should be confirmed empirically before or while fixing.
+- **Project:** `syslog_sniffer` v0.1.41 (Rust, libpcap via `pcap` crate, Docker + GitHub Actions release pipeline)
+- **Supersedes:** the `todo.md` currently in the repo (round 1, reviewed at v0.1.40). Replace that file with this one. Round-1 items that are still open are carried over and tagged `(carried: P#-#)`.
+- **Method:** full read of every source, script, workflow and doc, **plus the crate was built and exercised**:
+  - Built and ran `cargo test --locked` (lib: 69 pass; integration: 2 pass) on rustc 1.85.1; built `--release`.
+  - Ran the release binary against `lo` and crafted pcap files; 200 000 random inputs fuzzed through the parser and decoder.
+  - Items tagged **(verified)** were reproduced. Items tagged `(verify)` rest on reading only and must be confirmed while fixing.
+  - **Not run** (tooling unavailable in the review sandbox): `cargo fmt`, `cargo clippy`, `cargo audit/deny`, Trivy, Docker builds, any GitHub Actions run.
 
 ## Rules for the agent
 
-1. Work top-down by priority. One task = one commit, conventional-commit style (the repo uses `fix(...)`, `feat(...)`, `chore(...)`).
-2. **Do NOT bump `version` in `Cargo.toml`** unless told to. A version change on `main` automatically tags a release, builds binaries and pushes Docker Hub `latest` (see P3-5).
-3. After every task: `make lint && make test` must pass (`cargo clippy --all-targets -- -D warnings`, `cargo fmt -- --check`). Unit tests must not need root. Root-only tests go behind `#[ignore]`.
-4. Don't change CLI flags or JSON output incompatibly without a flag/deprecation path. See "Decisions" at the bottom for defaults to use when no answer is given.
-5. Every behaviour change needs a test with a real assertion. Add or update README usage when flags change.
-6. No `unsafe` in this crate (keep it that way, see P2-7).
+1. Work top-down by priority. One task = one commit, conventional-commit style (`fix(...)`, `feat(...)`, `chore(...)`).
+2. **Do NOT bump `version` in `Cargo.toml`** unless told to: a new version on `main` tags a release and pushes Docker Hub `latest` (see P1-1).
+3. After every task: `make lint && make test` must pass. Unit tests must not need root; root-only tests go behind `#[ignore]`.
+4. Don't change CLI flags or JSON output incompatibly. Additive JSON fields are fine (keep `schema_version: 1`, document them in README).
+5. Every behaviour change needs a test with a real assertion on output, not just "doesn't panic". Update README when flags or fields change.
+6. Keep `#![forbid(unsafe_code)]`.
+7. Use the defaults in "Decisions" at the bottom; do not stop to ask.
 
 ## What is good (don't regress)
 
-- Clean split: `lib` (parse) / `app` (loop) / `capture` (pcap) / `stats`, with a `PacketSource` trait that makes the loop mockable.
-- `Cargo.lock` committed, `cargo-auditable` + CycloneDX SBOM, TruffleHog/Trivy in CI, SHA-pinned actions in `security.yml`, CODEOWNERS, Dependabot cooldown.
-- No `unsafe`, no `unwrap` on network data (the only `unwrap`s are on static regexes and JSON serialization).
-- No secrets found in the working tree or in git history (`ghp_xxx` in `bin/renovate/run.sh` is a help-text placeholder).
+- Round 1 landed well: real Ethernet/VLAN/SLL/IPv4/IPv6/UDP decoding, `udp dst port` BPF, bounded host map, sample truncation, sources per host, ndjson, `--read-pcap`, typed errors, signal handling, `regex` dropped.
+- **(verified)** live capture on `lo` works end to end; idle CPU is ~0.5% (0.03 s CPU in 6 s); SIGTERM flushes a final summary and the process exits.
+- Decoder is bounds-checked: 0 panics in 200 000 random frames across Ethernet and Raw.
+- Output contract is deterministic (`BTreeMap`), data on stdout / logs on stderr, `CaptureClosed` ends offline replay cleanly.
+- Supply-chain posture is above average: committed `Cargo.lock`, `cargo-auditable`, SBOMs, TruffleHog/Trivy, CODEOWNERS, Renovate with digest-pinning configured.
 
 ---
 
-## P0 — wrong results / resource-unsafe behaviour (fix first)
+## P0 — fix first (remote crash / wrong results)
 
-- [x] **P0-1 Decode Ethernet/IP/UDP properly; stop scanning for `<`**
-  - **Where:** `src/app.rs:39-46`, `src/capture.rs:36-49`, `src/lib.rs:45-74`.
-  - **Problem:** `PcapCapture` hands the *entire frame* (link + IP + UDP headers + payload) to the app. The app takes the first `0x3C` byte anywhere in the frame as the start of the syslog message. A `0x3C` inside the headers (IP total-length 60, an IP octet 60, a random ID/checksum byte, a port) makes the "message" start inside the header. The result is garbage text, hostname `Unknown`, or the packet silently dropped by the UTF-8 check. If there is no `0x3C`, the whole frame (MAC bytes included) is parsed and almost always fails UTF-8, so the packet is dropped silently. Ethernet padding on short frames (zero bytes after the UDP payload) is also never trimmed, so NULs end up in messages. Datalink is only logged (`app.rs:12`) and never used. VLAN tags, IPv6 and `any`/`LINUX_SLL` captures are therefore all unreliable.
+- [x] **P0-1 Remote panic: one UDP packet crashes the sniffer** **(verified)**
+  - **Where:** `src/parser.rs:89` — `let month = &rest_trimmed[0..3];` inside `extract_hostname` (RFC 3164 branch).
+  - **Problem:** `rest_trimmed` is a `&str` built from `String::from_utf8_lossy`. Slicing a `str` by byte range panics when byte 3 is not a char boundary. Any payload of the form `<PRI>` followed by a multibyte character straddling byte 3, with ≥15 bytes after the `>`, panics. Repro: `parse_syslog_packet("<13>Ö😀xxxxxxxxxxxxx".as_bytes())` panics ("byte index 3 is not a char boundary"). Random fuzz (200 000 inputs, half with a `<13>` prefix): **30 711 panics, all at this line**.
+  - **Impact:** an unauthenticated sender (spoofable, same L2 segment or routed) can kill the process with a single datagram. For a blue-team monitoring tool that is a trivial blinding attack; in Docker without a restart policy the sniffer stays dead.
   - **Fix:**
-    - Add a `decode` module that takes `(datalink, &[u8])` and returns `Option<Datagram { src_ip, dst_ip, src_port, dst_port, payload: &[u8] }>`.
-    - Support `EN10MB` (+ 802.1Q/QinQ), `NULL`/`LOOP`, `LINUX_SLL`, `LINUX_SLL2`, `RAW`; IPv4 (honour IHL) and IPv6 (skip known extension headers, count and drop fragments); UDP (use the UDP length field to trim padding).
-    - Use a small, well-maintained crate (e.g. `etherparse`) or hand-roll with bounds-checked slices. Justify the choice in the commit message and check the binary size delta on armv7.
-    - Expose the datalink as an enum from `PacketSource` instead of a `Debug`-formatted `String` (`lib.rs:17`).
-    - Feed only `payload` to `parse_syslog_packet`. Delete the `'<'` heuristic.
-  - **Acceptance:** table-driven tests with crafted frames: payload preceded by a header containing `0x3C` at several offsets; padded short frame; VLAN-tagged; IPv6; `lo`-style EN10MB; NULL/LOOP; truncated/garbage frames return `None` without panic. Sample message never contains header bytes or trailing NULs.
+    - Do the month check on bytes: `rest_trimmed.as_bytes().get(0..3)` compared to `b"Jan"`… (store `MONTHS` as `[&[u8]; 12]`), or use `rest_trimmed.get(0..3)` (returns `None` off-boundary).
+    - Audit every other index/slice on `&str` in `parser.rs` (`msg[1..close_idx]` is safe because byte 0 is `<` and `close_idx` is a `>` position; keep it that way or switch to `get`).
+    - Prefer parsing on `&[u8]` end-to-end (the payload is bytes anyway) and only build a `String` for the sample.
+  - **Acceptance:**
+    - Regression test: multibyte chars (2-, 3-, 4-byte, and lossy U+FFFD from invalid bytes) placed at every offset 0..=20 after `<13>` never panic and return a sane result.
+    - `proptest`/fuzz (see P2-3) with arbitrary bytes: `parse_syslog_packet` and `decode_datagram` never panic.
+    - Consider a defensive `std::panic::catch_unwind` around the per-packet path that increments `parse_errors` (P1-9) and continues; do this *in addition to* the fix, not instead.
 
-- [x] **P0-2 Fix the CPU busy-loop in capture** `(verify)`
-  - **Where:** `src/capture.rs:19-20,27-29` + `src/app.rs:61-64`.
-  - **Problem:** the capture is put into non-blocking mode (`setnonblock()`), so `next_packet()` returns `TimeoutExpired` immediately when idle (the `timeout(1000)` is then meaningless). The loop `continue`s straight back, pinning one core at ~100% while waiting. The 5 mock-based unit tests also spin for their full 1 s `interval` for the same reason.
-  - **Fix:** remove `setnonblock()`; keep blocking reads with a short read timeout (e.g. 100–250 ms) so the deadline/report/signal checks in the loop still run on time. A 1000 ms timeout lets a run overshoot `--interval` by up to 1 s.
-  - **Acceptance:** idle CPU on `lo` <1% over 10 s (measure via `/proc/<pid>/stat` or `ps`; record before/after in the PR); e2e scripts still pass; overshoot of `--interval` ≤ the chosen timeout.
+- [ ] **P0-2 `--read-pcap` ignores `--port`** **(verified)**
+  - **Where:** `src/capture.rs` (`FileCapture::new` applies no filter), `src/app.rs` (never compares `datagram.dst_port`).
+  - **Problem:** with `--read-pcap file.pcap --port 514` a pcap containing a UDP/53 packet with a syslog-looking payload is counted as a syslog host (reproduced: host `dnsdecoy` from port 53 reported alongside `onport`). Offline mode therefore disagrees with live mode and with the documented behaviour of `--port`. Forensic runs over real captures will report every UDP payload that happens to start with `<`.
+  - **Fix:** both of:
+    - Apply the same BPF filter string to the offline capture (`Capture<Offline>::filter`), sharing one `fn bpf_filter(port) -> String` with the live path.
+    - In the app loop, drop (and count as `non_matching_port`, additive field) any datagram whose `dst_port != config.port`. This also guards live captures if the BPF filter is bypassed or mis-compiled.
+  - **Acceptance:** test with a pcap holding one packet to 514 and one to 53 → only the 514 host appears; `--port 53` → only the other.
 
-- [x] **P0-3 Make capture errors visible and fatal when persistent**
-  - **Where:** `src/app.rs:65-68`, `src/capture.rs:41-42`, `src/main.rs`.
-  - **Problem:** any capture error (interface went down, etc.) is logged at `debug` only (default level is `Error`, so invisible), sleeps 10 ms, and loops until `--interval` expires. The process then prints an empty summary and exits 0. A monitoring pipeline can't tell "no syslog traffic" from "sniffer is blind". `run_sniffer` returns `()`, so it can't signal failure at all.
+---
+
+## P1 — behaviour, output contract, release pipeline
+
+- [ ] **P1-1 Docker publish is skipped after a successful release job** `(verify in a real run)`
+  - **Where:** `.github/workflows/ci.yml` (`create-release` → `publish-docker`), `.github/actions/check-version-change/action.yml`.
+  - **Problem:** the composite action decides `changed` by asking `git ls-remote --tags origin vX.Y.Z`. `create-release` runs it, then **pushes that tag**. `publish-docker` (`needs: create-release`) runs the same action afterwards, finds the tag it just saw created, sets `changed=false`, and every publish step (`if: steps.version.outputs.changed == 'true'`) is skipped. Net effect: GitHub draft release is created, **no image is pushed**. Re-running the workflow cannot recover because the tag now exists.
   - **Fix:**
-    - `run_sniffer` returns `Result<(), SnifferError>`; `main` returns `ExitCode`.
-    - Log capture errors at `warn`/`error` (rate-limited, e.g. once per second).
-    - Abort with non-zero exit after N consecutive errors (e.g. 50) or on fatal pcap errors such as `NoMorePackets`/`PcapError`.
-    - Add permission hints to the open error: "needs CAP_NET_RAW or root" (`capture.rs:21`).
-  - **Acceptance:** a mock source returning `Err` repeatedly makes `run_sniffer` return `Err` and `main` exit non-zero; message visible at default log level.
+    - Compute the decision once in a small `detect` job (`outputs: version, should_release`) and have `create-release` and `publish-docker` consume `needs.detect.outputs.*` instead of re-evaluating.
+    - Make each step idempotent independently: tag exists ≠ image exists. Check the image with `docker buildx imagetools inspect docker.io/hellqvio/syslog_sniffer:$VERSION` before pushing; check the release with `gh release view`.
+    - Decide the gating (see P3-1): either push after a human publishes the draft (`on: release: types: [published]`) or document that images publish immediately.
+  - **Acceptance:** a dry run on a fork (or `act`) with a new version tags, drafts and pushes exactly once; a re-run is a no-op; a re-run after a failed push completes the push.
 
-- [x] **P0-4 Bound memory — all keys and samples come from untrusted packets**
-  - **Where:** `src/stats.rs:16-38`, `src/app.rs:49-53`.
-  - **Problem:** `HashMap<String,(u64,String)>` is keyed by the self-reported hostname; the stored sample is the full first message (up to ~64 KB). One host flooding packets with random hostnames grows memory without bound until the run ends. In non-periodic mode that means the whole `--interval`. A container with no memory limit (the documented `docker run`) gets OOM-killed.
+- [ ] **P1-2 Broken pipe does not stop the sniffer** **(verified)**
+  - **Where:** `src/app.rs` `write_summary_json`.
+  - **Problem:** `BrokenPipe` is swallowed (`return Ok(())`) and the loop keeps running. `syslog_sniffer --periodic --emit-empty --format ndjson | head -n 1` ran the full 8 s until `timeout` killed it; with no `--duration` it would run forever, capturing into a closed pipe.
+  - **Fix:** return a distinguishable result (e.g. `SnifferError::OutputClosed`), stop the loop, skip the final summary, and have `main` exit `0` quietly (or 141 if you prefer SIGPIPE semantics; pick 0 per Decisions).
+  - **Acceptance:** unit test with a writer that returns `BrokenPipe` in periodic mode with `duration=None` returns promptly; e2e `| head -n1` exits within one `--frequency`.
+
+- [ ] **P1-3 Default log level hides every `warn!`** **(verified)**
+  - **Where:** `src/config.rs` `determine_log_level` (default `Error`), `src/main.rs`, `src/app.rs`.
+  - **Problem:** capture-error warnings (rate-limited, the P0-3 mechanism from round 1), the `--interval` deprecation warning and the "could not register signal handler" warning are all `warn!`, so at the default level they are never printed. Confirmed: `syslog_sniffer -i lo --interval 1` prints nothing.
+  - **Fix:** default to `Warn`; `--debug` → `Debug`; honour `RUST_LOG` as today. Update the e2e "quiet" checks (grep for `ERROR|panicked`, allow `WARN` only where expected).
+  - **Acceptance:** test (or e2e) that `--interval 1` emits the deprecation line on stderr by default.
+
+- [ ] **P1-4 Attacker can hide real hosts by filling the host table; `hosts_overflowed` is mis-named**
+  - **Where:** `src/stats.rs` `add_entry`.
+  - **Problem:** keys are self-reported hostnames. A sender that spoofs 10 000 distinct hostnames at the start of a window fills the table; every later (real) host is counted only in `hosts_overflowed`, with no per-host or per-source detail. Also, the counter increments **per packet**, not per distinct host, so the name is misleading.
   - **Fix:**
-    - `--max-hosts` (default 10 000). Overflow is counted into a single `overflow` bucket and reported as `hosts_overflowed: N`.
-    - Truncate hostnames (RFC 5424 max 255) and samples (`--sample-bytes`, default 256, `0` = no sample) on a UTF-8 boundary.
-    - Also remove the name collision where a real host named `Unknown` merges with "no hostname" (`app.rs:49-52`): count "no hostname" in a separate field.
-  - **Acceptance:** test feeding 1 M unique hostnames keeps `stats` size ≤ `max-hosts` entries; sample never exceeds the cap; overflow count correct.
+    - Keep an independent, separately capped per-**source-IP** counter (`senders: {ip: count}`, `--max-sources`, default 10 000, plus `senders_overflowed`) regardless of `--key-by`. Source IPs are the harder-to-spoof dimension on a monitored segment.
+    - Rename semantics: keep `hosts_overflowed` for compatibility but document it as packets; add `packets_from_overflowed_hosts` (same value) and `distinct_hosts_overflowed` (best effort, e.g. HyperLogLog-free: count distinct up to a small cap, then `>=N`).
+    - Document the evasion risk in README "Limitations".
+  - **Acceptance:** test: 10 000 spoofed hostnames then one real host from a distinct IP → real source IP present in `senders`.
+
+- [ ] **P1-5 Config validation happens after the capture is opened; numeric args under-validated** **(verified)**
+  - **Where:** `src/main.rs`, `src/app.rs` (validate inside `run_sniffer_with_writer`), `src/config.rs`.
+  - **Problem:** the `frequency > duration` check runs only after the interface is opened (needs root, may fail first for the wrong reason) and surfaces as `Capture("Configuration error: …")`. `--max-hosts 0`, `--snaplen=0`, `--buffer-size=-5` are all accepted (exit 0). `buffer_size`/`snaplen` are `i32`.
+  - **Fix:** validate in `main` before touching pcap (exit code 2, clap-style message) or encode in clap (`value_parser` ranges, `ArgGroup`/custom validator). Use `u32` with ranges: `max_hosts >= 1`, `snaplen 64..=262144`, `buffer_size >= 65536` (document units).
+  - **Acceptance:** each bad value fails with exit 2 before any pcap call (test via `Config::try_parse_from`).
+
+- [ ] **P1-6 `--interval` deprecation lives in the library and reads process args** **(carried: P1-1)**
+  - **Where:** `src/app.rs` `check_interval_deprecated(std::env::args())` is called from `run_sniffer_with_writer`.
+  - **Problem:** a library function inspecting `std::env::args()` is a layering violation, pollutes tests, and is invisible anyway (P1-3).
+  - **Fix:** declare a hidden `#[arg(long, hide = true, conflicts_with = "duration")] interval: Option<u64>` in `Config`, fold it into `effective_duration_secs()`, and warn in `main.rs` when it is set. Delete `check_interval_deprecated`.
+
+- [ ] **P1-7 Decouple the library from the clap struct** **(carried: P1-11, marked done in round 1 but not)**
+  - **Where:** `run_sniffer_with_writer(config: Config, …)`; tests build `Config` with a 16-field struct literal.
+  - **Fix:** introduce `RunOptions { port, duration, periodic, frequency, max_hosts, sample_bytes, format, emit_empty, key_by }` (no clap derive), `impl From<&Config> for RunOptions`, and take that in `app.rs`. Tests use `RunOptions::default()` + struct update.
+
+- [ ] **P1-8 Fail fast on unsupported link types** `(verify)`
+  - **Where:** `src/capture.rs`, `src/decode.rs` (`Datalink::Unsupported`).
+  - **Problem:** on e.g. an 802.11 or PPP interface every frame becomes a `decode_error` and the run "succeeds" with an empty/odd summary.
+  - **Fix:** `PcapCapture::new` and `FileCapture::new` return `SnifferError::UnsupportedDatalink(i32)` (message lists supported types) instead of constructing a source. Add a test with a crafted pcap using linktype 105.
+
+- [ ] **P1-9 Count every dropped packet; no silent paths**
+  - **Where:** `src/app.rs` — `if let Some(syslog) = parse_syslog_packet(...)` has no `else`.
+  - **Problem:** empty/whitespace/NUL-only payloads vanish uncounted. `decode_errors` conflates "not UDP/IPv4/6", "truncated", "unsupported datalink".
+  - **Fix:** add `parse_errors` (empty payloads), and split `decode_errors` into `decode_truncated` / `decode_unsupported` (keep `decode_errors` as the sum). Count IPv4 first-fragments (MF set, offset 0: currently decoded as if complete with a truncated payload) in `fragmented_first`.
+  - **Acceptance:** counters asserted for each path.
+
+- [ ] **P1-10 `--debug` and `--no-sample` leak message bodies**
+  - **Where:** `src/app.rs` `debug!("Captured from … {}", truncate_utf8(&syslog.message, sample_bytes.max(64)))`.
+  - **Problem:** with `--no-sample` / `--sample-bytes 0` the operator asked for no message content, yet `--debug` still logs 64 bytes of every message.
+  - **Fix:** when `sample_bytes == 0` log only host, source IP and length. README: state that `--debug` logs message content.
+
+- [ ] **P1-11 VLAN-tagged traffic is decoded but never captured** `(verify)`
+  - **Where:** `src/capture.rs` filter `udp dst port N`.
+  - **Problem:** libpcap's plain `udp dst port` expression assumes untagged Ethernet; 802.1Q-tagged frames (promiscuous capture on a trunk, or drivers that don't strip tags) do not match, although `decode.rs` handles up to three tag types.
+  - **Fix:** `udp dst port N or (vlan and udp dst port N)` for Ethernet datalinks (use `cap.get_datalink()` to decide); verify with a crafted tagged pcap replayed through the shared offline filter from P0-2.
+
+- [ ] **P1-12 Declared MSRV is wrong** **(verified)**
+  - **Where:** `Cargo.toml` `rust-version = "1.80.0"`.
+  - **Problem:** `cargo 1.80.1 check --locked` fails: `clap_builder 4.6.2` needs the `edition2024` cargo feature (Rust ≥ 1.85). Anyone building with the advertised MSRV, including distro packagers, fails.
+  - **Fix:** set `rust-version = "1.85"` (or the highest dependency requirement; `cargo msrv find` to confirm) and add a CI job: `cargo +<msrv> check --locked --all-targets`.
 
 ---
 
-## P1 — behaviour, CLI and output contract
+## P2 — tests, performance, code quality
 
-- [x] **P1-1 Fix the run-duration semantics (`--interval`/`--periodic`/`--frequency`)**
-  - **Where:** `src/config.rs:12-19`, `src/app.rs:15-33,72-80`.
-  - **Problem:**
-    - `--interval` is actually the **total runtime** (the process always exits after it, default 10 s), while `--frequency` is the report period. The names suggest the opposite, and `--periodic` mode also exits after `--interval`. There is no way to run as a long-lived collector.
-    - `--frequency` is silently ignored without `--periodic`.
-    - `--interval 0` exits immediately with an empty report.
-    - `--frequency 0` with `--periodic` reports on every loop iteration.
-    - The final partial window in periodic mode reports `last_report_time.elapsed().as_secs()`, which truncates to `0` for sub-second windows even when it contains messages.
-    - The report schedule drifts: `last_report_time = Instant::now()` after each report instead of advancing a fixed deadline.
-  - **Fix:** add `--duration <SECS>` (`0` = run until signalled); keep `--interval` as a deprecated alias for one minor version (clap `alias` + a warn log); with `--periodic` and no `--duration`, run until signalled. Validate: `frequency >= 1`, `frequency` requires `--periodic` (`requires = "periodic"`), `frequency <= duration` when both are set. Use a fixed deadline schedule for windows. Report the actual window length (see P1-4).
-  - **Acceptance:** tests (with the clock abstraction from P2-1) for 0 / forever, schedule without drift, final partial window length.
+- [ ] **P2-1 Unit suite is slow; `Ok(None)` path still polls** **(verified, carried: P2-1)**
+  - `cargo test --lib` took **7.9 s** (round-1 acceptance: well under 1 s). Causes: `test_run_sniffer_periodic_interval_report` sleeps 1.1 s plus others, and every `Ok(None)` sleeps 10 ms in real time.
+  - **Fix:** inject a `Clock` trait (`now() -> Instant`, `sleep(Duration)`, `system_now()`), use a fake in tests; keep the real one in `main`. Target: lib tests < 1 s.
 
-- [x] **P1-2 Handle SIGINT/SIGTERM; flush the final summary**
-  - **Problem:** no signal handling. Under Docker the binary is PID 1 (exec-form `ENTRYPOINT`). A PID 1 process without a SIGTERM handler ignores SIGTERM, so `docker stop` hangs 10 s and then SIGKILLs, losing the current window. This is masked today only because the process self-terminates after `--interval`; it becomes severe once P1-1 lands.
-  - **Fix:** `signal-hook` or `ctrlc` (with `termination` feature) → atomic flag checked each loop iteration → final summary → exit 0. Consider `docker run --init`/`tini` note in docs.
-  - **Acceptance:** e2e test sends SIGTERM and still gets a valid final JSON object and exit code 0; `docker stop` returns in <2 s.
+- [ ] **P2-2 Capture loop: finish the busy-loop fix properly** **(carried: P0-2)**
+  - **Where:** `src/capture.rs` still calls `setnonblock()` and `src/app.rs` sleeps 10 ms on `Ok(None)`.
+  - **Problem:** the 250 ms read timeout is inert in non-blocking mode; the loop polls at ~100 Hz and adds up to 10 ms latency. CPU is fine today (measured ~0.5%), but this is a workaround, not the intended design.
+  - **Fix:** remove `setnonblock()` and the 10 ms sleep; rely on blocking reads with the 250 ms timeout so shutdown/report deadlines still fire. Re-measure idle CPU and record before/after in the PR. `(verify)` behaviour of `immediate_mode(true)` + timeout on Linux (TPACKET_V3) and on the armv7 build.
 
-- [x] **P1-3 CLI validation, types and help text**
-  - **Where:** `src/config.rs`.
-  - `port: usize` (`:9`) accepts `0` and `>65535`. Use `u16` with `value_parser!(u16).range(1..)`.
-  - **User-visible bug:** the doc comment on `Config` (`config.rs:3`) is clap-template boilerplate — "Search for a pattern in a file and display the lines that contain it." — and is shown by `--help`. Replace with a real `about`; add `#[command(version)]`; add `help =` for every argument (units, defaults, semantics).
-  - Remove the redundant inherent `Config::parse()` shim (`:22-26`); stale comment "Revised helper to match main.rs logic exactly" (`:28`).
-  - Reject empty `--interface`.
-  - **Acceptance:** `syslog_sniffer --help` documents all flags correctly; bad values fail with clap errors (tests).
+- [ ] **P2-3 Fuzz + property tests (now justified by P0-1)** **(carried: P2-3)**
+  - Add `proptest` (dev-dependency): arbitrary `Vec<u8>` into `parse_syslog_packet` and `decode_datagram` for each `Datalink`; invariants: no panic, `hostname.len() <= payload.len()`, decoded `payload` is a sub-slice of the frame, JSON output re-parses.
+  - Add a `cargo-fuzz` target (`fuzz/fuzz_targets/parse.rs`, `decode.rs`) and a weekly scheduled workflow with a short time budget; seed corpus from the unit-test payloads.
 
-- [x] **P1-4 Output contract: schema, timing, ordering, broken pipe**
-  - **Where:** `src/stats.rs:4-14`, `src/app.rs:29,79`.
-  - Add `schema_version`, `window_start`/`window_end` (RFC 3339 UTC), and a real `interval_seconds: f64`. Keep the old field for compatibility for now.
-  - Use `BTreeMap` (or a sorted Vec) so host order is deterministic (HashMap order is random per run, which breaks diffing and flaky-prone assertions).
-  - `println!(...unwrap())` panics on `EPIPE` (`syslog_sniffer ... | head`) and on any stdout error. Write via a locked `stdout` with `io::Result`; treat `BrokenPipe` as clean exit.
-  - Add `--format {pretty,ndjson}`. Default stays `pretty` for now (e2e and README assume it); recommend `ndjson` (one compact object per line) for periodic/long-running use, because multi-line pretty JSON is awkward for log shippers. Add `--emit-empty` to emit heartbeat windows with zero hosts (silence ≠ dead).
-  - Data → stdout, logs → stderr; state this in README.
-  - **Acceptance:** golden-file tests for both formats; `| head -c1` doesn't panic.
+- [ ] **P2-4 Hot-path allocations remain** **(carried: P2-6, marked done but not)**
+  - **Where:** `capture.rs` `packet.data.to_vec()` (copy per packet); `parser.rs` builds a full `String` for the message and another for the hostname per packet (up to ~64 KB); `stats.rs` `src_ip.to_string()` per packet when `--key-by source-ip`.
+  - **Fix:** change `PacketSource::next_packet` to lend the buffer (callback `FnMut(&[u8])` or a `Cow`/lifetime-bound packet type); make the parser return borrowed views (`hostname: Option<&str>`, `message: Cow<'_, str>`); allocate only when inserting a new host (and then only `sample_bytes`); key by `IpAddr` for source-ip mode and stringify at report time.
+  - **Acceptance:** a criterion benchmark or timed test over 1 M synthetic datagrams; record msgs/s before/after in the PR.
 
-- [x] **P1-5 Report capture health, not just per-host counts**
-  - **Problem:** a sniffer that silently loses packets under-reports with no indication. Packets rejected by the UTF-8 check or by the parser are not counted anywhere.
-  - **Fix:** add to each window: `packets_seen`, `datagrams_decoded`, `no_hostname`, `non_utf8`, `decode_errors`, `hosts_overflowed`, and libpcap `ps_recv`/`ps_drop`/`ps_ifdrop` deltas via `Capture::stats()` (add a defaulted `stats()` to `PacketSource`).
-  - **Acceptance:** counters asserted in tests; kernel-drop delta included for the pcap source.
+- [ ] **P2-5 Integration test is hollow and writes a malformed pcap**
+  - **Where:** `tests/integration_test.rs` `test_cli_binary_execution`.
+  - **Problem:** the pcap record header writes `caplen`/`len` with `to_be_bytes()` while every other field is native-endian (a typo; on little-endian hosts the lengths are byte-swapped). The 14-byte all-zero "frame" is not a datagram, and the assertion is only `status.success()`, so the test would pass whatever the output.
+  - **Fix:** build a valid Ethernet/IPv4/UDP/syslog frame, assert on stdout JSON (host, count, source), and add the unsupported-linktype / bad-file failure cases. Extract the pcap-writer that is copy-pasted in `main.rs`, `capture.rs` and `integration_test.rs` into `tests/common/mod.rs` (or check in small `tests/fixtures/*.pcap` files).
 
-- [x] **P1-6 Record the real sender, not just the claimed hostname** (depends on P0-1)
-  - **Problem:** stats are keyed by a hostname taken from message content, which any sender controls. For a blue-team tool, "who is actually sending" matters more than what they claim.
-  - **Fix:** per host entry add `sources: ["10.0.0.5", ...]` (capped at 8, plus `sources_truncated`) and optionally `--key-by {hostname,source-ip}`.
-  - **Acceptance:** spoofed hostname from two IPs shows both sources.
+- [ ] **P2-6 Remaining test gaps**
+  - `test_capture_lo_or_permission_denied` asserts nothing meaningful. Make a root-only `#[ignore]` test that sends a real datagram to a free port and asserts the parsed result; run it in CI with `sudo -E cargo test -- --ignored` **(carried: P2-4)**.
+  - e2e: `tests/e2e_periodic_docker.sh` still has `wait "$SNIFFER_PID" || true` (hides crashes) and fixed `sleep` startup races; add cases for SIGTERM → valid final JSON and exit 0 (manually verified OK in this review), non-zero exit for a missing interface, IPv6 `::1`, non-UTF-8 payload, multibyte-after-PRI payload (P0-1), pcap replay with a decoy port (P0-2) **(carried: P2-5)**.
+  - Parser table tests for: hostname `255+` bytes, RFC 5424 with structured data containing spaces, PRI `<0>`, `<191>`, `<1>` (single digit), `<>` and `<abc>`.
 
-- [x] **P1-7 Parser correctness gaps**
-  - **Where:** `src/lib.rs:26-74`.
-  - **Not handled:**
-    - RFC 5424 NILVALUE hostname `-` is reported as host `"-"`. Map to "no hostname".
-    - RFC 3164 regex requires trailing whitespace after the hostname (`<13>Oct 11 22:14:15 host` with no body doesn't match). When the hostname is absent, the tag is taken as hostname (`<13>Oct 11 22:14:15 su: ...` → `su:`). Reject candidates ending in `:` or containing `[`/`]`.
-    - The very common rsyslog/syslog-ng "RFC 3339 timestamp without version" format (`<34>2026-11-08T12:00:00.123456+01:00 host tag: msg`) falls through both regexes → `Unknown`.
-    - PRI isn't range-checked (valid 0–191). `\d`/`\s`/`\S` are Unicode-aware in the `regex` crate; use ASCII classes.
-    - No trailing `\n`/`\r\n`/`\0` trimming of the message.
-  - **Consider:** replace `regex` with a ~60-line hand-written ASCII parser (or `regex-lite`). It's a security tool on untrusted input; fewer dependencies, no Unicode tables (smaller armv7 binary), no backtracking surface. Measure binary size before/after.
-  - Optionally return `pri`/`facility`/`severity`/`app_name` and add facility/severity histograms later (P5).
-  - **Acceptance:** table-driven tests for each case above plus real captures from rsyslog, syslog-ng, systemd-journal-remote, a Cisco-style line, and a UniFi/OpenWrt-style line.
-
-- [x] **P1-8 Don't drop non-UTF-8 messages**
-  - **Where:** `src/lib.rs:50,72`.
-  - **Problem:** one invalid byte makes the whole message disappear (`Err(_) => None`), uncounted. RFC 5424 only requires UTF-8 after the BOM, and 3164 senders routinely emit Latin-1 or binary.
-  - **Fix:** use `String::from_utf8_lossy` (and count `non_utf8` in P1-5); still return `None` only for empty payloads.
-
-- [x] **P1-9 Sensitive data in output and debug logs**
-  - **Problem:** `sample` echoes raw log lines (often containing usernames, IPs, sometimes credentials) to stdout, which Docker/journald/shippers persist. `--debug` logs every full message (`app.rs:54-58`).
-  - **Fix:** `--sample-bytes` (P0-4, default 256), `--no-sample`, README warning. Optional `--redact <regex>` later.
-
-- [x] **P1-10 BPF filter and capture options**
-  - **Where:** `src/capture.rs:16-25`.
-  - `udp port N` matches **source or destination** port, so unrelated traffic from a client whose ephemeral port equals N, or the server's own replies, is captured. Use `udp dst port N`.
-  - IP fragments after the first don't carry a UDP header, so BPF `udp port` misses them: large syslog datagrams are silently lost. Document, and count if practical.
-  - Add `--promisc` (default off), `--buffer-size` (default libpcap buffer is small for bursty syslog), and `--snaplen`. Document that `NET_ADMIN` is only needed for promiscuous mode `(verify)`.
-  - Open-error messages should distinguish permission denied / device not found / device down.
-
-- [x] **P1-11 Typed errors**
-  - Replace `Result<_, String>` (`lib.rs:16`, `capture.rs:9,36,51`) and `format!("{:?}", e)` with a `thiserror` enum (`DeviceNotFound`, `Permission`, `Pcap(pcap::Error)`, `Decode`). Needed by P0-3.
-  - Decouple `run_sniffer(config: Config, ...)` from the clap struct: pass a plain `RunOptions` so the library doesn't depend on CLI types.
+- [ ] **P2-7 Smaller code issues**
+  - `PacketSource::get_datalink() -> String` duplicates `datalink()`; delete it and the `Box` forwarding for it.
+  - `capture::setup_capture` is only used by tests with hard-coded args; make it `#[cfg(test)]` or delete.
+  - Permission detection in `PcapCapture::new` matches substrings of the error text (`"permission"`, `"operation not permitted"`): locale/libpcap-version dependent. Map from the underlying error code / `pcap::Error` variant instead `(verify the variants exposed by pcap 2.4)`.
+  - `set_capture_stats` uses `saturating_sub` on cumulative `u32` counters; after a wrap it reports 0 instead of the delta. Use `wrapping_sub`.
+  - **(verified)** `capture_stats.received` was 2 when one packet matched the filter and one decoy did not, so libpcap's `ps_recv` counts pre-filter on this platform. Document that `capture_stats.received` is not comparable to `packets_seen`, or rename the field to `kernel_received`.
+  - `FileCapture`: a corrupt/truncated pcap currently retries 50× (10 ms apart) before failing as `PersistentCapture`. Offline read errors should be fatal immediately.
+  - Report windows: `window_start_instant = Instant::now()` after each report while the schedule uses a fixed deadline, so consecutive windows gap/overlap by a few ms. Derive window start from the previous deadline.
+  - One-shot mode with zero traffic prints nothing and exits 0; consumers see EOF instead of a summary. Decide per Decisions (default `--emit-empty` in one-shot mode) and document.
 
 ---
 
-## P2 — tests and code quality
+## P3 — Docker, CI/CD, supply chain
 
-- [x] **P2-1 Make the loop testable, then assert on output**
-  - **Where:** `src/app.rs:83-223`.
-  - **Problem:** the 5 `run_sniffer` tests assert nothing (they only check "doesn't panic") and print to the real stdout. `MockPacketSource` returns `Ok(None)` forever after its queue empties, so each test burns the full 1 s `interval`.
-  - **Fix:** inject (a) an output `impl Write`, (b) a `Clock` trait (or an explicit "source exhausted" signal), (c) a shutdown flag. Then assert on the emitted JSON: counts per host, sample = first message, periodic windows reset, final partial window, error handling (P0-3), overflow (P0-4).
-  - **Acceptance:** whole unit suite runs in well under 1 s; every `run_sniffer` test has assertions.
+Round-1 boxes P3-5 and P3-7 were ticked but are only partly done; the missing pieces are listed again here.
 
-- [x] **P2-2 Parser tests that cover the parser**
-  - `lib.rs` tests don't test hostname extraction at all (valid / empty / invalid-UTF-8 / no-hostname / derive-`Debug` only). The only hostname assertions are in `tests/integration_test.rs` (3164) and the shell e2e (5424). Add the P1-7 table. Delete `test_debug_impls` (`lib.rs:106-127`, tests derive output and `stats` tests that restate the implementation).
+- [ ] **P3-1 Release gating and provenance** **(carried: P3-5)**
+  - README/`docs/WORKFLOW_SUMMARY.md` and the draft-release step imply a human review, but `publish-docker` is wired directly after `create-release` (once P1-1 is fixed it would push `latest` before anyone reviews the draft). Implement the gate (`on: release: types: [published]` or a protected Environment with required reviewers) or state clearly in docs that publishing is automatic.
+  - `publish-docker` still has `packages: write` but pushes to Docker Hub: remove.
+  - Add `provenance: mode=max` and `sbom: true` to `docker/build-push-action`, keyless cosign signing (or `actions/attest-build-provenance`) for binaries and image, and a `SHA256SUMS` release asset.
 
-- [ ] **P2-3 Fuzz + property tests (untrusted network input)**
-  - Add a `cargo-fuzz` target for `decode` + `parse_syslog_packet` and a `proptest` suite: never panics; hostname ≤255 bytes; sample ≤ cap; output always valid JSON. Run fuzz for a short budget in a scheduled workflow (weekly), not on every PR.
+- [ ] **P3-2 Pin actions by commit SHA; add `--locked` everywhere** **(carried: P3-5, P3-7)**
+  - `ci.yml` uses mutable tags/branches (`actions/checkout@v7`, `docker/*@v4/v7`, `softprops/action-gh-release@v3`, `taiki-e/install-action@cargo-tarpaulin`, `dtolnay/rust-toolchain@stable`, `stefanzweifel/git-auto-commit-action@v7`, …) while `security.yml` pins by SHA (and uses `checkout` v4.2.2). Renovate is configured with `helpers:pinGitHubActionDigests` but the workflows are not pinned yet: pin them now and unify checkout versions. `(verify)` every referenced major version exists.
+  - None of `cargo fmt/clippy/test/auditable build` use `--locked`; the **release job builds with `cargo auditable build --release` (no `--locked`)**, so shipped binaries are not guaranteed to match the tested lockfile. Add `--locked` to every cargo invocation.
+  - Add `cargo deny check` (advisories, licenses, bans) or `cargo audit`, `cargo doc` with `RUSTDOCFLAGS=-D warnings`, and the MSRV job (P1-12). Use `make lint` in CI so there is one definition.
 
-- [x] **P2-4 Deterministic capture tests; offline pcap mode**
-  - Add `--read-pcap <file>` backed by `Capture::from_file` as another `PacketSource`. This lets tests replay checked-in `.pcap` fixtures with no root, no timing, no sockets (and is useful to users for forensics).
-  - `test_capture_lo` (`capture.rs:73-89`) asserts nothing and depends on the host (root or not). Make it `#[ignore]` (root-only) and make it send a real UDP datagram and assert the parsed result; run it in CI with `sudo -E cargo test -- --ignored`.
+- [ ] **P3-3 Coverage job: write token on PRs, fragile badge** **(carried: P3-6)**
+  - `coverage` has `contents: write` and runs on `pull_request`, so PR code runs beside a write-scoped token; it commits `coverage.svg` on every push (noise, and a source of HEAD~1 confusion). `curl … > coverage.svg` has no `-fsSL`, so a shields.io error page gets committed as the badge; coverage is scraped from `cobertura.xml` with `grep -o … | head -1`.
+  - **Fix:** run the badge-commit step only on `push` to `main` in a separate job; `curl --fail --silent --show-error --retry 3`; parse with `xmllint`/`jq` or `cargo tarpaulin --out Json`; or drop the committed badge for Codecov/gist.
 
-- [x] **P2-5 Harden the shell e2e tests**
-  - `tests/e2e_docker.sh:49`, `e2e.sh:59`: `wait $SNIFFER_PID || true` hides sniffer crashes; capture the exit code and assert it.
-  - The "quiet" check greps for `INFO` (`e2e*.sh`) but the default log level is `Error`; grep for `ERROR|WARN|panicked` instead.
-  - Fixed `sleep 1/2/3` startup races → poll for readiness. Fixed ports 5514/5141 → pick a free port. Use `trap cleanup EXIT`, `mktemp` for output files (`sniffer_output_periodic.txt` is not in `.gitignore` and survives failures).
-  - Stale comments: `e2e_docker.sh:19` says the image defaults to non-root user `sniffer` (no such user exists); `e2e_periodic_docker.sh:63` says "total interval is 10s" (it is 20).
-  - `tests/e2e.sh` is never run in CI (only the two docker scripts). Either run it (root job) or delete it; it also needs interactive `sudo` and unnecessary `stdbuf`.
-  - Test messages: STRUCTURED-DATA has an unbalanced quote (`eventSource=" eventID=`), and "BOM" is literal text, not U+FEFF. Use RFC-compliant samples.
-  - **New cases:** RFC 3164, multiple hosts, IPv6 (`::1`), non-UTF-8 payload, SIGTERM (P1-2), non-zero exit when the interface is missing, packet flood hits `max-hosts`.
+- [ ] **P3-4 The published image is never the image that is tested** **(carried: P3-4)**
+  - CI e2e-tests the source-built `Dockerfile` image (amd64). The published image comes from `Dockerfile.release`: binaries cross-built on `ubuntu-latest` against Ubuntu glibc/libpcap (via the `ports.ubuntu.com` apt rewrite), dropped onto Debian trixie. arm64/armv7 binaries are never executed in CI.
+  - **Fix:** build release binaries inside Debian trixie via one multi-platform `buildx` build, smoke-test every platform under QEMU (`--version`, and a `--read-pcap` replay of a fixture), run the full e2e against the release amd64 image, and build (not publish) the arm targets on PRs.
 
-- [x] **P2-6 Hot-path allocations**
-  - **Where:** `src/app.rs:49-53`, `src/stats.rs:33-38`, `src/capture.rs:39`.
-  - Each packet: `packet.data.to_vec()` (copy 1), `s.to_string()` (copy 2), then `hostname.clone()` ×2 and `message.clone()` before `add_entry(String, String)`, which `or_insert`s only the first message. The rest are allocated just to be dropped.
-  - **Fix:** `add_entry(&mut self, host: &str, msg: &str)` with a `get_mut` fast path; allocate the sample only for new hosts (and truncated); borrow the pcap buffer instead of copying (e.g. `Packet<'_>` return type or callback).
-  - Add a simple benchmark (criterion or a timed test over 1 M synthetic datagrams) and record msgs/s before/after in the PR.
+- [ ] **P3-5 Dockerfile hygiene** **(carried: P3-3)**
+  - `FROM rust:slim` floats; pin `rust:<ver>-trixie` and `debian:trixie-slim` (digests via Renovate). `cargo install --locked cargo-auditable` is locked but the tool version is unpinned: add `--version`.
+  - No dependency-layer caching (manifests and `src` copied together): use a manifest-first layer, `cargo-chef`, or BuildKit cache mounts.
+  - `.dockerignore`: the `.env` entry is still missing from `.dockerignore` (it is in `.gitignore`); add it. The `ansible/` entry is stale now that the directory is gone.
 
-- [x] **P2-7 Cargo.toml hygiene**
-  - Add `description`, `repository`, `readme`, `keywords`, `categories`, `rust-version` (and a CI job on the MSRV). Consider migrating to edition 2024 (`cargo fix --edition`).
-  - Add `[profile.release]`: `lto = "thin"`/`"fat"`, `codegen-units = 1`, `strip = "symbols"`; evaluate `panic = "abort"`. Record armv7 binary size before/after.
-  - Add `[lints.rust] unsafe_code = "forbid"` (+ `#![forbid(unsafe_code)]` in `lib.rs`/`main.rs` if not using the table) and a curated `[lints.clippy]` set.
-
-- [x] **P2-8 `clippy.toml` is mostly dead config**
-  - Several keys tune lints that aren't enabled by default (`cognitive-complexity-threshold` → nursery; `too-many-lines-threshold`, `single-char-binding-names-threshold`, `max-struct-bools`, `max-trait-bounds`, `doc-valid-idents` → pedantic). `(verify with `cargo clippy -- -W clippy::pedantic`)`. Either enable those groups in `[lints.clippy]` and fix the findings, or delete the unused keys. Add the missing trailing newline.
+- [ ] **P3-6 Security scans and hooks** **(carried: P3-8)**
+  - Trivy runs `fs` only; add `trivy image --ignore-unfixed` on the built image, on a schedule too.
+  - `.githooks/pre-commit` runs lint + full tests + a TruffleHog scan of the whole git history + Trivy on every commit; people will bypass it. Make the hook fast (fmt + clippy + secrets on the staged diff); move full scans to `pre-push`/CI. Pin `trufflesecurity/trufflehog` and `aquasec/trivy` images in the Makefile and `bin/renovate/run.sh` (currently `:latest`).
 
 ---
 
-## P3 — Docker, CI/CD, supply chain (this repo advertises supply-chain security; hold it to that)
+## P4 — docs and repo hygiene
 
-- [x] **P3-1 Runtime image: ship the runtime lib, not the dev package**
-  - `Dockerfile:28-31` and `Dockerfile.release:4-6` install `libpcap-dev` (headers + extra dev dependencies) in the *runtime* stage. Use the runtime package (`libpcap0.8t64` on trixie `(verify exact name with apt-cache)`), `--no-install-recommends`; drop `ca-certificates` (no TLS in this tool).
-  - README claims ~15 MB / ~30 MB images (`README.md:151-153`); re-measure and correct. (`docs/DOCKER_DEPLOYMENT.md:68` itself uses `libpcap0.8`.)
+- [ ] **P4-1 README and docs**
+  - Document the new counters/fields from P0-2, P1-4, P1-9, and the exit-code contract (0 ok, 1 runtime failure, 2 usage error).
+  - "Limitations": UDP only; self-reported hostnames and the table-fill evasion (P1-4); IP fragments; VLAN note (P1-11); `ps_recv` semantics (P2-7); `--debug` prints message bodies (P1-10); samples may contain sensitive data.
+  - `docs/TESTING.md` / `docs/WORKFLOW_SUMMARY.md`: re-check against the final pipeline after P1-1/P3-1/P3-4 (single CONTRIBUTING.md is fine).
 
-- [x] **P3-2 Least privilege at runtime; stop recommending `--privileged`**
-  - The image runs as root; `Dockerfile.release:8-10` has the non-root user commented out; README and e2e use `--user root`. `README.md:125-127` labels `--privileged` as "Recommended". For a security tool that's the wrong default advice.
-  - **Fix (pick one, prove with e2e):**
-    - (a) non-root user + `setcap cap_net_raw+eip /usr/local/bin/syslog_sniffer` (needs `libcap2-bin` in the build stage). **Do not** combine with `--security-opt no-new-privileges` — NNP disables file capabilities.
-    - (b) root-in-container with `--cap-drop=ALL --cap-add=NET_RAW --read-only --security-opt no-new-privileges`.
-  - Verify whether `NET_ADMIN` is needed at all for non-promiscuous capture `(verify)`; drop it from README, Makefile, and e2e scripts if not.
-  - Replace the "disable SELinux/AppArmor" advice with a narrow troubleshooting note.
-
-- [ ] **P3-3 Dockerfile build hygiene**
-  - Pin `rust:<version>-trixie` and `debian:trixie-slim` (by digest; let the update bot bump them). `Dockerfile:2` uses floating `rust:slim`.
-  - `RUN cargo install cargo-auditable` (`:20`) is unpinned and not `--locked`. Pin the version, add `--locked`; use `cargo auditable build --release --locked`.
-  - No dependency-layer caching (manifests and `src` copied together): every source change rebuilds all deps. Use a manifest-first layer, `cargo-chef`, or BuildKit cache mounts.
-  - Extend `.dockerignore`: `.env`, `docs`, `ansible`, `tests`, `*.txt`.
-
-- [ ] **P3-4 The published image is never the thing that's tested**
-  - CI e2e-tests the **source-built `Dockerfile` image (amd64 only)**. The published image is `Dockerfile.release`: binaries cross-built on `ubuntu-latest` (Ubuntu glibc + Ubuntu libpcap, via the `ports.ubuntu.com` apt hack at `ci.yml:156-178`) and dropped onto Debian trixie. The arm64 and armv7 binaries are never executed in CI.
-  - **Fix:** build release binaries and images from the same multi-platform `buildx` build inside Debian trixie (removes the apt-sources hack and the glibc/libpcap mismatch), then smoke-test every platform under QEMU (`docker run --platform ... image --version`/`--help`) and run the full e2e on the amd64 release image. Add a PR path that builds (not publishes) the arm targets so breakage shows up before `main`.
-
-- [x] **P3-5 Release pipeline correctness**
-  - **Version detection is fragile** (`.github/actions/check-version-change/action.yml:25`, `ci.yml:238-242,295-297`): compares `HEAD~1:Cargo.toml` with `fetch-depth: 2`. A push containing several commits, or the bot's badge commit landing in between, makes a real version bump invisible → silently no release. Tag creation (`ci.yml:263`) fails on re-run because the tag exists. **Fix:** derive version from `Cargo.toml`, release only if tag `vX.Y.Z` does not already exist (`git ls-remote --tags` / `gh release view`), idempotently — or trigger on tag push / `release: published`.
-  - **Docs vs. reality:** `docs/WORKFLOW_SUMMARY.md` says Docker publishing is a separate `publish-docker.yml` triggered when a human publishes the draft release. There is no such file: `publish-docker` runs in `ci.yml` with `needs: create-release`, so images (including `latest`) are pushed to Docker Hub **immediately**, before anyone reviews the draft. Either implement the documented gate (`on: release: types: [published]`, or a protected Environment with required reviewers) or fix the docs.
-  - **Provenance:** README advertises SBOMs, but the published image has no attestations. Add `provenance: mode=max` and `sbom: true` to `build-push-action`, build-provenance attestation / cosign keyless signing for image and binaries, and a `SHA256SUMS` release asset.
-  - **Permissions:** `publish-docker` has `packages: write` (`ci.yml:287`) but pushes to Docker Hub; remove. Scope `contents: write` to the smallest job.
-  - **Pin third-party actions by commit SHA** like `security.yml` does. `ci.yml` uses mutable tags/branches (`@v7`, `@stable`, `taiki-e/install-action@cargo-tarpaulin`, `stefanzweifel/git-auto-commit-action`, `softprops/action-gh-release`, etc.). `security.yml` pins `checkout` at v4.2.2 while `ci.yml` uses `@v7` — unify. Also confirm every referenced major version actually exists `(verify — the reviewer could not)`; keep SHAs updated through the bot.
-
-- [ ] **P3-6 Coverage job: write token + noise + fragile badge**
-  - `ci.yml:91-128`: the job has `contents: write` and runs on `pull_request` too, so PR-authored code (tests, `build.rs`) runs next to a write-scoped token. It commits `coverage.svg` to `main` on every push (history is full of "Update coverage badge" commits, which also feed the HEAD~1 problem in P3-5). `curl ... > coverage.svg` (`:122`) has no `-fsSL`, so a shields.io outage commits an HTML error page as the badge.
-  - **Fix:** run the write step only on `push` to `main` in a separate job; or drop the committed badge in favour of a gist/Codecov/shields endpoint. At minimum use `curl --fail --retry 3`. Also fix `cobertura.xml` parsing (use `cargo tarpaulin --out Json` or `jq`/`xmllint`, not `grep -o` on the first `line-rate`).
-
-- [x] **P3-7 CI checks don't match the local gate**
-  - `ci.yml:38` runs `cargo clippy -- -D warnings`; `Makefile:55` runs `--all-targets`. Tests/benches aren't linted in CI. Use `make lint` in CI so there's a single definition.
-  - Add `--locked` to cargo commands. Add `cargo deny` (advisories, licences, bans) or `cargo audit`; confirm Trivy `fs` actually covers `Cargo.lock` `(verify)`. Add `cargo doc` with `RUSTDOCFLAGS=-D warnings`. Add the MSRV job from P2-7.
-
-- [ ] **P3-8 `security.yml` and git hooks**
-  - Trivy runs `fs` only, which doesn't see the Debian packages in the published image. Add `trivy image` against the built image (with `--ignore-unfixed`), on a schedule too.
-  - `.githooks/pre-commit` runs lint + full tests + a TruffleHog scan of the **entire git history** (`Makefile:116-124`, `--only-verified` makes network calls) + Trivy on every commit: slow, so people will bypass it. Scope the hook to staged changes (fast lint + secrets on the diff); keep full scans in CI or `pre-push`.
-  - Security tooling is pulled as `:latest` (`Makefile:121,131`, `bin/renovate/run.sh:24` → `ghcr.io/renovatebot/renovate:latest`). Pin versions/digests.
-
-- [x] **P3-9 Two dependency bots + token handling**
-  - Both `dependabot.yml` (cargo, github-actions) and `renovate.json` are configured. If both run on the GitHub repo you get duplicate/conflicting PRs. Pick one. If Dependabot stays, add the `docker` ecosystem (base images aren't covered today). If Renovate stays, enable digest pinning (`helpers:pinGitHubActionDigests`, `pinDigests` for Docker) and drop `dependabot.yml` version updates.
-  - `bin/renovate/run.sh`: passes `-e "RENOVATE_TOKEN=${TOKEN}"` on the `docker run` command line (visible via `ps`/`docker inspect`) and accepts `--token <value>` (shell history, `ps`). Pass `-e RENOVATE_TOKEN` (inherit from environment) or `--env-file`; drop the CLI flag. The script sources `.env`, but `.env` is in neither `.gitignore` nor `.dockerignore` → add both.
-
-- [x] **P3-10 Makefile**
-  - README documents `make docker-run PRIVILEGED=1` and `DOCKER_OPTS="--security-opt ..."` (`README.md:114,126-136`) but `Makefile:65-78` implements neither (variables are silently ignored). Implement `$(DOCKER_OPTS)` or remove the docs (if P3-2 lands, the PRIVILEGED path should simply go away).
-  - `.PHONY` (`Makefile:1`) omits `check`, `fmt`, `format`, `coverage`, `sbom`, `docker-tag`, `docker-clean`, `docker-run-interactive`, `all`.
-  - `make run` (`:31`) runs bare `cargo run`, which fails (required `--interface`) and needs root; accept `ARGS`.
-  - `docker-run` uses `-it` (breaks in CI/non-TTY); `all` includes `sbom`, which `cargo install`s a tool as a side effect.
-
-- [x] **P3-11 Out-of-scope `ansible/` directory**
-  - A k3s control-plane cordon/taint/label playbook has nothing to do with a syslog sniffer. Move it to the home-lab repo or delete it.
-  - If kept: tasks use `changed_when: "'already cordoned' not in stdout"` etc. (`ansible/roles/k3s_node_scheduling/tasks/main.yml`) with bare `stdout` rather than the registered variable (e.g. `cordon_result.stdout`); likely always-changed or erroring. Run `ansible-lint` and `--check`. `ansible.cfg` sets `host_key_checking = False`.
+- [ ] **P4-2 CHANGELOG**
+  - Add an `## [Unreleased]` section, and note the P0-1 crash as a security fix when it ships. 0.1.40 and 0.1.41 share a date: confirm the 0.1.41 entry is accurate once P1-1 is fixed (it claims Docker hardening and `regex` removal, which match the code).
 
 ---
 
-## P4 — documentation and repo hygiene
+## P5 — backlog (don't start before P0–P2)
 
-- [x] **P4-1 README**
-  - Usage (`:174-181`) lists 3 options; add `--debug`, `--duration`/`--interval`, `--periodic`, `--frequency`, and the new flags; show sample output; state that the default run exits after N seconds (until P1-1).
-  - Add a **Limitations** section: UDP only (no TCP/TLS/RELP syslog), IP fragments, what "hostname" means (self-reported), needs `CAP_NET_RAW`, output may contain sensitive log data.
-  - Replace `docker pull ...:0.6.2` (`:89`) — the crate is at 0.1.40, so that example tag is stale/nonexistent; use `<version>`.
-  - `make docker-run` with no `ARGS` just prints `--help` (image `CMD`), not "default options" (`:58-59`).
-  - Correct size numbers (P3-1) and the privileged-mode advice (P3-2).
-
-- [x] **P4-2 `docs/DOCKER_DEPLOYMENT.md` describes a different project layout**
-  - It shows a different Dockerfile (`rust:1.83-trixie`, `/build`, `libpcap0.8`) copying `target/release/rust_syslog_sniffer`. The real binary is `syslog_sniffer` (`Cargo.toml:2`), so the documented Dockerfile would fail. It references a non-existent `README_DOCKER.md` (`:25`) and contains leftover "Integration Steps" instructions. Delete it (the README covers Docker) or rewrite it from the real `Dockerfile`/`Makefile`.
-
-- [x] **P4-3 `docs/TESTING.md`, `docs/WORKFLOW_SUMMARY.md`**
-  - Absolute `file:///path/to/rust_syslog_sniffer/...` links (broken for everyone else) → relative links. `WORKFLOW_SUMMARY.md` documents a non-existent `publish-docker.yml` and omits `security.yml`; `TESTING.md` implies `e2e.sh` runs in CI. Update after P3-4/P3-5, or fold into a single CONTRIBUTING.md.
-
-- [x] **P4-4 Ignore files and editor config**
-  - `.gitignore`: add `.env`, `sbom*.json`, `*.cdx.json`, `sniffer_output_*.txt`, `/coverage`. Ignoring `.cargo/` is unusual (hides project-level cargo config): confirm it's intentional.
-  - `.vscode/settings.json`: `rust-analyzer.cargo.extraArgs: ["--release"]` makes rust-analyzer check in release mode (slower, diverges from `make check`); consider dropping.
-  - Add a `CHANGELOG.md` (release notes are auto-generated only).
+- Facility/severity histograms per host (PRI is already parsed in `extract_hostname`; return it).
+- TCP/TLS syslog (RFC 6587 framing) or document UDP-only as a hard limit.
+- Prometheus `/metrics` or a socket/file sink for long-running mode.
+- "Host went silent" detection across windows.
 
 ---
 
-## P5 — backlog / features worth considering (don't start before P0–P2)
-
-- Facility/severity histograms per host (needs PRI parsing from P1-7).
-- TCP syslog (RFC 6587 octet-counting and newline framing) — current README title implies "syslog packets" generally; either implement or document UDP-only.
-- Prometheus-style `/metrics` or file/socket output sink for long-running mode.
-- Per-host rate / "went silent" detection across windows (baseline against the previous window).
-
----
-
-## Decisions (use these defaults if the maintainer hasn't said otherwise — do not stop to ask)
+## Decisions (defaults to use; do not stop to ask)
 
 | Question | Default |
 |---|---|
-| Default `--format` | keep `pretty`; add `ndjson`; propose switching at 0.2.0 |
-| `--interval` | deprecated alias of `--duration`; `--periodic` without duration runs until signalled |
-| Docker privilege model | option (b) in P3-2 (root + `--cap-drop=ALL --cap-add=NET_RAW`, read-only, NNP) unless e2e proves (a) works cleanly |
-| Dependency bot | Renovate with digest pinning; remove Dependabot version updates but keep security alerts |
-| `regex` dependency | remove in favour of a hand-written parser if the fuzz/table tests pass; otherwise `regex-lite` |
-| Release trigger | tag-existence check (P3-5), not `HEAD~1` |
-| `ansible/` | remove from this repo |
+| Broken pipe exit code | `0`, quietly |
+| Default log level | `Warn` (`--debug` → `Debug`, `RUST_LOG` honoured) |
+| New JSON fields | additive, `schema_version` stays `1`, documented in README |
+| `--interval` | hidden deprecated flag that warns in `main`; remove at 0.2.0 |
+| MSRV | `1.85` unless a dependency needs more; enforced by a CI job |
+| One-shot mode with no traffic | emit an empty summary (treat as `--emit-empty`); keep the flag for periodic mode |
+| Per-packet panic guard | fix the bug (P0-1) and add `catch_unwind` + `parse_errors` as defence in depth |
+| Release trigger | single `detect` job output feeding both release jobs; images gated on publishing the draft release |
+| Everything else | follow the round-1 "Decisions" table (Renovate with digest pinning, root + `--cap-drop=ALL --cap-add=NET_RAW`, tag-existence check, no `ansible/`) |
 
 ## Suggested order of work
 
-1. P0-1 → P0-2 → P0-3 → P0-4 (correctness first; P0-1 changes the `PacketSource` interface, so do P1-11 typed errors alongside).
-2. P2-1 (testable loop) → P1-1/P1-2/P1-3/P1-4/P1-5 → P1-6…P1-10.
-3. P2-2…P2-8 in parallel with the above where files don't overlap.
-4. P3 (pipeline) once the binary behaves; P3-4 and P3-5 touch the same workflow file, so do them together.
-5. P4 docs last, so they describe the final behaviour.
+1. **P0-1** (parser panic) and **P0-2** (pcap ignores `--port`), each with tests; ship as a patch release.
+2. **P1-1** (release pipeline) so the fix can actually be published; then P1-2, P1-3, P1-5, P1-6, P1-7.
+3. P1-4, P1-8 … P1-12, then P2 (tests/perf). P2-3 (fuzz) can start right after P0-1.
+4. P3 pipeline work after P1-1; P3-1 and P3-4 touch the same workflow, so do them together.
+5. P4 docs last so they describe the final behaviour.

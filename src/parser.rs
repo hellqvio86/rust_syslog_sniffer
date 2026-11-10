@@ -5,8 +5,8 @@ pub struct SyslogPacket {
     pub is_non_utf8: bool,
 }
 
-const MONTHS: [&str; 12] = [
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+const MONTHS: [&[u8]; 12] = [
+    b"Jan", b"Feb", b"Mar", b"Apr", b"May", b"Jun", b"Jul", b"Aug", b"Sep", b"Oct", b"Nov", b"Dec",
 ];
 
 /// Parses a UDP syslog payload into a `SyslogPacket`.
@@ -45,13 +45,13 @@ fn extract_hostname(msg: &str) -> Option<String> {
         return None;
     }
 
-    let pri_str = &msg[1..close_idx];
+    let pri_str = msg.get(1..close_idx)?;
     let pri: u16 = pri_str.parse().ok()?;
     if pri > 191 {
         return None;
     }
 
-    let rest = &msg[close_idx + 1..];
+    let rest = msg.get(close_idx + 1..)?;
 
     // Case 1: RFC 5424: starts with "1 " (version 1)
     if rest.starts_with("1 ") {
@@ -69,7 +69,10 @@ fn extract_hostname(msg: &str) -> Option<String> {
 
     // Case 2: RFC 3339 timestamp without version digit (e.g. rsyslog/syslog-ng)
     // Example: <34>2026-11-08T12:00:00+01:00 myhost app: msg
-    if rest.len() >= 20 && rest.as_bytes()[0].is_ascii_digit() && rest.contains('T') {
+    if rest.len() >= 20
+        && rest.as_bytes().first().is_some_and(u8::is_ascii_digit)
+        && rest.contains('T')
+    {
         let mut parts = rest.split_ascii_whitespace();
         let ts = parts.next()?;
         if ts.contains('T') && ts.len() >= 19 {
@@ -86,20 +89,24 @@ fn extract_hostname(msg: &str) -> Option<String> {
     // E.g. "Oct 11 22:14:15 mymachine su: ..."
     let rest_trimmed = rest.trim_start();
     if rest_trimmed.len() >= 15 {
-        let month = &rest_trimmed[0..3];
-        if MONTHS.contains(&month) && rest_trimmed.as_bytes()[3] == b' ' {
-            // Find time field hh:mm:ss (look for colons)
-            let mut parts = rest_trimmed.split_ascii_whitespace();
-            let _month = parts.next()?;
-            let _day = parts.next()?;
-            let time = parts.next()?;
-            if time.len() == 8 && time.as_bytes()[2] == b':' && time.as_bytes()[5] == b':' {
-                if let Some(candidate) = parts.next() {
-                    if is_valid_hostname(candidate) {
-                        return Some(candidate.to_string());
+        if let Some(month) = rest_trimmed.as_bytes().get(0..3) {
+            if MONTHS.contains(&month) && rest_trimmed.as_bytes().get(3) == Some(&b' ') {
+                // Find time field hh:mm:ss (look for colons)
+                let mut parts = rest_trimmed.split_ascii_whitespace();
+                let _month = parts.next()?;
+                let _day = parts.next()?;
+                let time = parts.next()?;
+                if time.len() == 8
+                    && time.as_bytes().get(2) == Some(&b':')
+                    && time.as_bytes().get(5) == Some(&b':')
+                {
+                    if let Some(candidate) = parts.next() {
+                        if is_valid_hostname(candidate) {
+                            return Some(candidate.to_string());
+                        }
                     }
+                    return None;
                 }
-                return None;
             }
         }
     }
@@ -259,5 +266,61 @@ mod tests {
         let pkt12 = parse_syslog_packet(b"<13>valid utf8").unwrap();
         assert!(!pkt12.is_non_utf8);
         assert_eq!(pkt12.message, "<13>valid utf8");
+    }
+
+    #[test]
+    fn test_p0_1_multibyte_at_all_offsets_never_panics() {
+        // Specific reproducer from P0-1
+        let repro = b"<13>\xC3\x96\xF0\x9F\x98\x80xxxxxxxxxxxxx";
+        let pkt = parse_syslog_packet(repro);
+        assert!(pkt.is_some());
+
+        // 2-byte (Ö: \xC3\x96), 3-byte (€: \xE2\x82\xAC), 4-byte (😀: \xF0\x9F\x98\x80), and lossy invalid bytes
+        let multibyte_samples: &[&[u8]] = &[
+            "Ö".as_bytes(),
+            "€".as_bytes(),
+            "😀".as_bytes(),
+            &[0xff, 0xfe],
+            &[0x80, 0x81, 0x82],
+        ];
+
+        for sample in multibyte_samples {
+            for offset in 0..=20 {
+                let mut data = Vec::new();
+                data.extend_from_slice(b"<13>");
+                data.resize(data.len() + offset, b'a');
+                data.extend_from_slice(sample);
+                data.extend_from_slice(b"xxxxxxxxxxxxxxxxxxxx");
+
+                let res = parse_syslog_packet(&data);
+                assert!(res.is_some());
+            }
+        }
+    }
+
+    #[test]
+    fn test_parser_table_edge_cases() {
+        // PRI <0>
+        let pkt_pri0 = parse_syslog_packet(b"<0>Oct 11 22:14:15 myhost msg").unwrap();
+        assert_eq!(pkt_pri0.hostname.as_deref(), Some("myhost"));
+
+        // PRI <1> (single digit)
+        let pkt_pri1 = parse_syslog_packet(b"<1>Oct 11 22:14:15 myhost msg").unwrap();
+        assert_eq!(pkt_pri1.hostname.as_deref(), Some("myhost"));
+
+        // PRI <191>
+        let pkt_pri191 = parse_syslog_packet(b"<191>Oct 11 22:14:15 myhost msg").unwrap();
+        assert_eq!(pkt_pri191.hostname.as_deref(), Some("myhost"));
+
+        // Hostname 255+ bytes
+        let long_host = "h".repeat(300);
+        let msg = format!("<13>Oct 11 22:14:15 {} msg", long_host);
+        let pkt_long = parse_syslog_packet(msg.as_bytes()).unwrap();
+        assert_eq!(pkt_long.hostname.as_deref(), Some(long_host.as_str()));
+
+        // RFC 5424 with structured data containing spaces
+        let sdata_msg = b"<165>1 2026-11-08T22:14:15.003Z myhost app 123 ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"] Test message";
+        let pkt_sdata = parse_syslog_packet(sdata_msg).unwrap();
+        assert_eq!(pkt_sdata.hostname.as_deref(), Some("myhost"));
     }
 }

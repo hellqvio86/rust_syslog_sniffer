@@ -191,7 +191,7 @@ Round-1 boxes P3-5 and P3-7 were ticked but are only partly done; the missing pi
   - CI e2e-tests the source-built `Dockerfile` image (amd64). The published image comes from `Dockerfile.release`: binaries cross-built on `ubuntu-latest` against Ubuntu glibc/libpcap (via the `ports.ubuntu.com` apt rewrite), dropped onto Debian trixie. arm64/armv7 binaries are never executed in CI.
   - **Fix:** build release binaries inside Debian trixie via one multi-platform `buildx` build, smoke-test every platform under QEMU (`--version`, and a `--read-pcap` replay of a fixture), run the full e2e against the release amd64 image, and build (not publish) the arm targets on PRs.
 
-- [ ] **P3-5 Dockerfile hygiene** **(carried: P3-3)**
+- [x] **P3-5 Dockerfile hygiene** **(carried: P3-3)**
   - `FROM rust:slim` floats; pin `rust:<ver>-trixie` and `debian:trixie-slim` (digests via Renovate). `cargo install --locked cargo-auditable` is locked but the tool version is unpinned: add `--version`.
   - No dependency-layer caching (manifests and `src` copied together): use a manifest-first layer, `cargo-chef`, or BuildKit cache mounts.
   - `.dockerignore`: the `.env` entry is still missing from `.dockerignore` (it is in `.gitignore`); add it. The `ansible/` entry is stale now that the directory is gone.

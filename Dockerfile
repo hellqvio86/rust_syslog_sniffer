@@ -31,10 +31,11 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # Runtime stage (Debian Trixie slim)
 FROM debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
 
-# Install runtime dependencies with apt cache mount
+# Install runtime dependencies and security updates with apt cache mount
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
     libpcap0.8t64
 

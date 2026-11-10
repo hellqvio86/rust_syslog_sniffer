@@ -481,6 +481,27 @@ mod tests {
     }
 
     #[test]
+    fn test_run_sniffer_no_sample_debug_logging() {
+        init_test_logger();
+        let mut config = default_test_options();
+        config.sample_bytes = 0;
+
+        let packet_data = create_test_frame(b"<13>Oct 11 22:14:15 mymachine SECRET_PASSWORD_123");
+        let packets = vec![Ok(Some(PacketData { data: packet_data })), Ok(None)];
+
+        let source = MockPacketSource::new(packets);
+        let mut buf = Cursor::new(Vec::new());
+        let shutdown = Arc::new(AtomicBool::new(false));
+
+        let res = run_sniffer_with_writer(config, source, &mut buf, shutdown);
+        assert!(res.is_ok());
+
+        let output = String::from_utf8(buf.into_inner()).unwrap();
+        let summary: JsonSummary = serde_json::from_str(&output).expect("valid json");
+        assert_eq!(summary.hosts["mymachine"].sample, "");
+    }
+
+    #[test]
     fn test_run_sniffer_persistent_error() {
         init_test_logger();
         let mut config = default_test_options();

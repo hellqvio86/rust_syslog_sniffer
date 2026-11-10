@@ -105,7 +105,7 @@ syslog_sniffer [OPTIONS]
 Options:
   -i, --interface <INTERFACE>   Network interface to sniff on (e.g. eth0, lo) [required unless --read-pcap]
   -p, --port <PORT>             UDP port to sniff (1-65535, default: 514)
-  -d, --debug                   Enable debug logging to stderr
+  -d, --debug                   Enable debug logging to stderr (logs message content when sampling is enabled)
       --duration <SECS>         Total runtime in seconds (alias: --interval; default: 10s in one-shot mode; 0 or omitted in periodic mode runs indefinitely)
       --periodic                Enable periodic windowed summary output
       --frequency <SECS>        Periodic output interval in seconds (requires --periodic, default: 5)
@@ -170,7 +170,7 @@ Options:
   - The JSON summary reports both packet counts (`packets_from_overflowed_hosts`, also mirrored in `hosts_overflowed`) and best-effort unique host counts (`distinct_hosts_overflowed`).
   - To index statistics directly by verified network sender rather than claimed hostnames, use `--key-by source-ip`.
 - **Privileges**: Packet capture requires the `CAP_NET_RAW` Linux capability (or running as root).
-- **Log Confidentiality**: Message samples can contain sensitive data (usernames, internal IPs). Use `--no-sample` or `--sample-bytes 0` when shipping reports to shared sinks.
+- **Log Confidentiality**: Message samples can contain sensitive data (usernames, internal IPs). When sampling is enabled, `--debug` also logs message bodies to stderr. Use `--no-sample` or `--sample-bytes 0` when shipping reports or logs to shared sinks; in this mode, `--debug` logs only host, source IP, and length without message content.
 
 ## Development
 

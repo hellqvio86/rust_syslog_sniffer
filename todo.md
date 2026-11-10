@@ -111,7 +111,7 @@
   - **Fix:** add `parse_errors` (empty payloads), and split `decode_errors` into `decode_truncated` / `decode_unsupported` (keep `decode_errors` as the sum). Count IPv4 first-fragments (MF set, offset 0: currently decoded as if complete with a truncated payload) in `fragmented_first`.
   - **Acceptance:** counters asserted for each path.
 
-- [ ] **P1-10 `--debug` and `--no-sample` leak message bodies**
+- [x] **P1-10 `--debug` and `--no-sample` leak message bodies**
   - **Where:** `src/app.rs` `debug!("Captured from … {}", truncate_utf8(&syslog.message, sample_bytes.max(64)))`.
   - **Problem:** with `--no-sample` / `--sample-bytes 0` the operator asked for no message content, yet `--debug` still logs 64 bytes of every message.
   - **Fix:** when `sample_bytes == 0` log only host, source IP and length. README: state that `--debug` logs message content.

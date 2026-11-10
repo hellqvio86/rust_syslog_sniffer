@@ -40,16 +40,24 @@ impl PcapCapture {
             .immediate_mode(true)
             .timeout(250) // 250ms read timeout
             .open()
-            .map_err(|e| {
-                let msg = e.to_string();
-                if msg.to_lowercase().contains("permission")
-                    || msg.to_lowercase().contains("operation not permitted")
-                    || msg.contains("CAP_NET_RAW")
+            .map_err(|e| match e {
+                pcap::Error::IoError(std::io::ErrorKind::PermissionDenied) => {
+                    SnifferError::PermissionDenied(format!("{} (needs CAP_NET_RAW or root)", e))
+                }
+                pcap::Error::ErrnoError(errno)
+                    if std::io::Error::from_raw_os_error(errno.0).kind()
+                        == std::io::ErrorKind::PermissionDenied =>
+                {
+                    SnifferError::PermissionDenied(format!("{} (needs CAP_NET_RAW or root)", e))
+                }
+                pcap::Error::PcapError(ref msg)
+                    if msg.to_lowercase().contains("permission")
+                        || msg.to_lowercase().contains("operation not permitted")
+                        || msg.contains("CAP_NET_RAW") =>
                 {
                     SnifferError::PermissionDenied(format!("{} (needs CAP_NET_RAW or root)", msg))
-                } else {
-                    SnifferError::Pcap(e)
                 }
+                other => SnifferError::Pcap(other),
             })?;
 
         let linktype_raw = cap.get_datalink().0;
@@ -121,7 +129,10 @@ impl PacketSource for FileCapture {
             Err(pcap::Error::NoMorePackets) => {
                 Err(SnifferError::CaptureClosed("End of pcap file".to_string()))
             }
-            Err(e) => Err(SnifferError::Pcap(e)),
+            Err(e) => Err(SnifferError::PersistentCapture(format!(
+                "Pcap file read error: {}",
+                e
+            ))),
         }
     }
 
@@ -130,6 +141,7 @@ impl PacketSource for FileCapture {
     }
 }
 
+#[cfg(test)]
 pub fn setup_capture(interface: &str, port: u16) -> Result<PcapCapture, SnifferError> {
     PcapCapture::new(interface, port, false, 65535, 2 * 1024 * 1024)
 }
@@ -361,7 +373,7 @@ mod tests {
 
         let mut file_cap = FileCapture::new(&path, 514).expect("open corrupt pcap");
         let res = file_cap.next_packet();
-        assert!(matches!(res, Err(SnifferError::Pcap(_))));
+        assert!(matches!(res, Err(SnifferError::PersistentCapture(_))));
 
         let _ = std::fs::remove_file(&path);
     }

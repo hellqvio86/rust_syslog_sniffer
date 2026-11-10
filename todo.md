@@ -157,7 +157,7 @@
   - e2e: `tests/e2e_periodic_docker.sh` still has `wait "$SNIFFER_PID" || true` (hides crashes) and fixed `sleep` startup races; add cases for SIGTERM → valid final JSON and exit 0 (manually verified OK in this review), non-zero exit for a missing interface, IPv6 `::1`, non-UTF-8 payload, multibyte-after-PRI payload (P0-1), pcap replay with a decoy port (P0-2) **(carried: P2-5)**.
   - Parser table tests for: hostname `255+` bytes, RFC 5424 with structured data containing spaces, PRI `<0>`, `<191>`, `<1>` (single digit), `<>` and `<abc>`.
 
-- [ ] **P2-7 Smaller code issues**
+- [x] **P2-7 Smaller code issues**
   - `PacketSource::get_datalink() -> String` duplicates `datalink()`; delete it and the `Box` forwarding for it.
   - `capture::setup_capture` is only used by tests with hard-coded args; make it `#[cfg(test)]` or delete.
   - Permission detection in `PcapCapture::new` matches substrings of the error text (`"permission"`, `"operation not permitted"`): locale/libpcap-version dependent. Map from the underlying error code / `pcap::Error` variant instead `(verify the variants exposed by pcap 2.4)`.

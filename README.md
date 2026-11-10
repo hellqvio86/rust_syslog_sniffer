@@ -114,7 +114,7 @@ Options:
       --sample-bytes <N>        Maximum sample message bytes to store per host (default: 256; 0 to disable)
       --no-sample               Disable message samples in output (equivalent to --sample-bytes 0)
       --format <pretty|ndjson>  JSON output format: pretty or ndjson (default: pretty)
-      --emit-empty              Emit heartbeat summary windows even if no packets were captured
+      --emit-empty              Emit heartbeat summary windows in periodic mode even if no packets were captured (one-shot mode defaults to emitting an empty summary)
       --key-by <hostname|source-ip>
                                 Key statistics by claimed hostname or sender source IP (default: hostname)
       --promisc                 Put interface into promiscuous mode (requires CAP_NET_ADMIN)
@@ -170,6 +170,7 @@ Options:
   - The JSON summary reports both packet counts (`packets_from_overflowed_hosts`, also mirrored in `hosts_overflowed`) and best-effort unique host counts (`distinct_hosts_overflowed`).
   - To index statistics directly by verified network sender rather than claimed hostnames, use `--key-by source-ip`.
 - **Privileges**: Packet capture requires the `CAP_NET_RAW` Linux capability (or running as root).
+- **Kernel Capture Stats (`capture_stats.received`)**: Under Linux libpcap, `ps_recv` (`capture_stats.received`) counts packets received by the kernel socket filter *pre-filter*, whereas `packets_seen` counts packets that matched the BPF filter. Consequently, `capture_stats.received` can be larger than `packets_seen` when other traffic is present on the interface.
 - **Log Confidentiality**: Message samples can contain sensitive data (usernames, internal IPs). When sampling is enabled, `--debug` also logs message bodies to stderr. Use `--no-sample` or `--sample-bytes 0` when shipping reports or logs to shared sinks; in this mode, `--debug` logs only host, source IP, and length without message content.
 
 ## Development

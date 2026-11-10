@@ -124,11 +124,12 @@ pub fn run_sniffer_with_writer_and_clock<S: PacketSource, W: Write, C: Clock>(
                 stats.clear();
             }
 
-            window_start_instant = clock.now();
-            window_start_time = clock.system_now();
+            let scheduled_deadline = next_report_instant;
             while next_report_instant <= clock.now() {
                 next_report_instant += freq_dur;
             }
+            window_start_instant = scheduled_deadline;
+            window_start_time = window_end_time;
         }
 
         match source.next_packet() {
@@ -197,6 +198,10 @@ pub fn run_sniffer_with_writer_and_clock<S: PacketSource, W: Write, C: Clock>(
                 debug!("Packet stream closed/exhausted, finishing capture loop");
                 break;
             }
+            Err(SnifferError::PersistentCapture(e)) => {
+                error!("Fatal capture error: {}", e);
+                return Err(SnifferError::PersistentCapture(e));
+            }
             Err(e) => {
                 consecutive_errors += 1;
                 if clock.now().duration_since(last_error_log) >= Duration::from_secs(1) {
@@ -218,7 +223,10 @@ pub fn run_sniffer_with_writer_and_clock<S: PacketSource, W: Write, C: Clock>(
         }
     }
 
-    if options.emit_empty || !stats.is_empty() {
+    // In one-shot mode (!options.periodic), default to emitting an empty summary per Decisions table.
+    // In periodic mode, only emit if emit_empty is set or stats is not empty.
+    let should_emit = options.emit_empty || !options.periodic || !stats.is_empty();
+    if should_emit {
         let window_end_time = clock.system_now();
         let window_duration_secs = clock
             .now()
@@ -883,5 +891,73 @@ mod tests {
         assert_eq!(summary.non_matching_port, 1);
         assert!(summary.hosts.contains_key("myhost"));
         assert!(!summary.hosts.contains_key("dnsdecoy"));
+    }
+
+    #[test]
+    fn test_run_sniffer_one_shot_empty_by_default() {
+        let mut config = default_test_options();
+        config.periodic = false;
+        config.emit_empty = false;
+
+        let source = MockPacketSource::new(vec![]);
+        let mut buf = Cursor::new(Vec::new());
+        let shutdown = Arc::new(AtomicBool::new(false));
+
+        let res = run_sniffer_with_writer(config, source, &mut buf, shutdown);
+        assert!(res.is_ok());
+
+        let output = String::from_utf8(buf.into_inner()).unwrap();
+        let summary: JsonSummary = serde_json::from_str(&output).expect("valid json summary");
+        assert_eq!(summary.packets_seen, 0);
+        assert!(summary.hosts.is_empty());
+    }
+
+    #[test]
+    fn test_run_sniffer_periodic_no_emit_empty_when_no_packets() {
+        let mut config = default_test_options();
+        config.periodic = true;
+        config.emit_empty = false;
+        config.frequency = 1;
+        config.duration = Some(2);
+
+        let clock = FakeClock::new();
+        struct EmptySource(FakeClock);
+        impl PacketSource for EmptySource {
+            fn next_packet(&mut self) -> Result<Option<PacketData<'_>>, SnifferError> {
+                self.0.advance(Duration::from_millis(1500));
+                Ok(None)
+            }
+            fn datalink(&self) -> Datalink {
+                Datalink::Ethernet
+            }
+        }
+
+        let mut buf = Cursor::new(Vec::new());
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let res = run_sniffer_with_writer_and_clock(
+            config,
+            EmptySource(clock.clone()),
+            &mut buf,
+            shutdown,
+            clock,
+        );
+        assert!(res.is_ok());
+
+        let output = String::from_utf8(buf.into_inner()).unwrap();
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn test_run_sniffer_persistent_capture_fatal_immediately() {
+        let config = default_test_options();
+        let packets = vec![Err(SnifferError::PersistentCapture(
+            "corrupt pcap".to_string(),
+        ))];
+        let source = MockPacketSource::new(packets);
+        let mut buf = Cursor::new(Vec::new());
+        let shutdown = Arc::new(AtomicBool::new(false));
+
+        let res = run_sniffer_with_writer(config, source, &mut buf, shutdown);
+        assert!(matches!(res, Err(SnifferError::PersistentCapture(_))));
     }
 }

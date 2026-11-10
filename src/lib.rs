@@ -65,9 +65,6 @@ pub trait PacketSource {
     fn stats(&mut self) -> Option<CaptureStats> {
         None
     }
-    fn get_datalink(&self) -> String {
-        format!("{:?}", self.datalink())
-    }
 }
 
 impl<T: PacketSource + ?Sized> PacketSource for Box<T> {
@@ -79,9 +76,6 @@ impl<T: PacketSource + ?Sized> PacketSource for Box<T> {
     }
     fn stats(&mut self) -> Option<CaptureStats> {
         (**self).stats()
-    }
-    fn get_datalink(&self) -> String {
-        (**self).get_datalink()
     }
 }
 
@@ -108,7 +102,6 @@ mod tests {
     fn test_packet_source_defaults_and_box() {
         let mut source: Box<dyn PacketSource> = Box::new(MinimalSource { returned: false });
         assert_eq!(source.datalink(), Datalink::Raw);
-        assert_eq!(source.get_datalink(), "Raw");
         assert_eq!(source.stats(), None);
 
         let p1 = source.next_packet().unwrap();

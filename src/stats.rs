@@ -235,11 +235,11 @@ impl StatsTracker {
                 packets_if_dropped: 0,
             });
 
-            let delta_recv = curr.packets_received.saturating_sub(last.packets_received);
-            let delta_drop = curr.packets_dropped.saturating_sub(last.packets_dropped);
+            let delta_recv = curr.packets_received.wrapping_sub(last.packets_received);
+            let delta_drop = curr.packets_dropped.wrapping_sub(last.packets_dropped);
             let delta_ifdrop = curr
                 .packets_if_dropped
-                .saturating_sub(last.packets_if_dropped);
+                .wrapping_sub(last.packets_if_dropped);
 
             self.last_cumulative_stats = Some(curr);
             self.capture_stats = Some(KernelStats {
@@ -656,6 +656,29 @@ mod tests {
         assert_eq!(ks2.received, 50);
         assert_eq!(ks2.dropped, 1);
         assert_eq!(ks2.if_dropped, 0);
+    }
+
+    #[test]
+    fn test_kernel_stats_wrapping_sub() {
+        let mut tracker = StatsTracker::default();
+        tracker.set_capture_stats(Some(CaptureStats {
+            packets_received: u32::MAX - 10,
+            packets_dropped: u32::MAX,
+            packets_if_dropped: 100,
+        }));
+
+        // Window wraps past u32::MAX
+        tracker.set_capture_stats(Some(CaptureStats {
+            packets_received: 5, // (u32::MAX - 10) wraps to 5 -> delta is 16
+            packets_dropped: 2,  // u32::MAX wraps to 2 -> delta is 3
+            packets_if_dropped: 110,
+        }));
+        let now = SystemTime::now();
+        let summary = tracker.get_summary(10, 10.0, now, now);
+        let ks = summary.capture_stats.unwrap();
+        assert_eq!(ks.received, 16);
+        assert_eq!(ks.dropped, 3);
+        assert_eq!(ks.if_dropped, 10);
     }
 
     #[test]

@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+- Fix critical panic on slicing non-char boundary in RFC 3164 parser when multibyte UTF-8 characters appear at specific byte offsets following `<PRI>` (P0-1).
+
+### Added
+- Independent per-source-IP sender tracking (`senders` map) up to `--max-sources` (default: 10,000) to mitigate hostname spoofing and host table evasion.
+- Fine-grained link-layer decode error counters (`decode_truncated`, `decode_unsupported`, `fragmented_first`) and `parse_errors` counter.
+- Host table overflow distinction: `distinct_hosts_overflowed` for rejected unique hostnames alongside `packets_from_overflowed_hosts`.
+- Continuous fuzzing pipeline and targets for RFC 3164/5424 parser, link-layer decoder, and JSON serialization.
+- Property-based tests via `proptest` asserting subslice preservation and lossless serialization roundtrips.
+- Root live UDP capture test asserting end-to-end packet capture and parsing on loopback.
+- Multi-architecture Buildx Docker pipeline with QEMU smoke tests across `linux/amd64`, `linux/arm64`, and `linux/arm/v7`.
+- SLSA provenance attestations and `SHA256SUMS` generation for release assets.
+
+### Changed
+- Gated Docker image publication strictly on GitHub Release publication (`release: [published]`).
+- BPF filter in offline pcap replay now strictly filters packets matching destination `--port`.
+- Application handles broken pipes quietly on stdout and exits 0 instead of terminating abnormally.
+- Default log level changed to `Warn` so warnings are visible without `--debug`.
+- Application core decoupled from clap configuration using `RunOptions`.
+- Enhanced capture performance using zero-copy packet data streaming (`Cow<'a, [u8]>`) and borrowed string lookups, exceeding 10M msgs/sec in benchmark.
+- Report windows now derive start time from the previous scheduled deadline to eliminate timing drift.
+- One-shot mode defaults to emitting an empty JSON summary when zero matching packets are captured.
+- Pinned all GitHub Actions by commit SHA and enforced `--locked` flag on all Cargo invocations.
+- Dockerfile updated with BuildKit cache mounts and digest-pinned base images.
+- Fast git pre-commit hook scanning staged diffs; full tests and image scans moved to pre-push and CI.
+
+### Fixed
+- Fatal offline pcap read errors now exit immediately without retrying.
+- Kernel capture statistics calculation uses wrapping arithmetic on 32-bit counter rollover.
+- MSRV corrected and enforced at Rust 1.85.0.
+
 ## [0.1.41] - 2026-11-08
 
 ### Added

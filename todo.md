@@ -204,12 +204,12 @@ Round-1 boxes P3-5 and P3-7 were ticked but are only partly done; the missing pi
 
 ## P4 — docs and repo hygiene
 
-- [ ] **P4-1 README and docs**
+- [x] **P4-1 README and docs**
   - Document the new counters/fields from P0-2, P1-4, P1-9, and the exit-code contract (0 ok, 1 runtime failure, 2 usage error).
   - "Limitations": UDP only; self-reported hostnames and the table-fill evasion (P1-4); IP fragments; VLAN note (P1-11); `ps_recv` semantics (P2-7); `--debug` prints message bodies (P1-10); samples may contain sensitive data.
   - `docs/TESTING.md` / `docs/WORKFLOW_SUMMARY.md`: re-check against the final pipeline after P1-1/P3-1/P3-4 (single CONTRIBUTING.md is fine).
 
-- [ ] **P4-2 CHANGELOG**
+- [x] **P4-2 CHANGELOG**
   - Add an `## [Unreleased]` section, and note the P0-1 crash as a security fix when it ships. 0.1.40 and 0.1.41 share a date: confirm the 0.1.41 entry is accurate once P1-1 is fixed (it claims Docker hardening and `regex` removal, which match the code).
 
 ---

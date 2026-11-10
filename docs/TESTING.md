@@ -84,18 +84,21 @@ All tests run automatically in CI on every push and pull request.
 
 **Test stages:**
 1. **build-and-test** job:
-   - Code formatting check (`cargo fmt`)
-   - Linting (`cargo clippy`)
-   - Unit tests (`cargo test`)
-
-2. **docker-build-and-test** job:
-   - Build Docker image (amd64)
-   - Run Docker E2E test
-   - Run Periodic Docker E2E test
-
-3. **coverage** job:
-   - Generate code coverage report
-   - Update coverage badge
+   - Formatting, Clippy, and Documentation via `make lint`
+   - Unit tests (`cargo test --locked`)
+   - Root live capture loopback test (`sudo -E cargo test --locked -- --ignored`)
+   - Security audit (`rustsec/audit-check`)
+2. **msrv** job:
+   - Validates Rust 1.85 compatibility (`cargo check --locked --all-targets`)
+3. **docker-build-and-test** job:
+   - Build multi-platform Docker image (`linux/amd64`, `linux/arm64`, `linux/arm/v7`)
+   - QEMU smoke tests (`--version` and `--read-pcap` replay) on each architecture
+   - Run Docker E2E test (`tests/e2e_docker.sh`)
+   - Run Periodic Docker E2E test (`tests/e2e_periodic_docker.sh`)
+4. **coverage** job:
+   - Generates code coverage report with read-only token
+5. **update-coverage-badge** job:
+   - Gated to `push` on `main` to commit `coverage.svg`
 
 ## Test Requirements
 

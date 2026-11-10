@@ -148,6 +148,10 @@ Options:
       ]
     }
   },
+  "senders": {
+    "192.168.1.1": 35,
+    "192.168.1.2": 7
+  },
   "capture_stats": {
     "received": 42,
     "dropped": 0,
@@ -156,10 +160,55 @@ Options:
 }
 ```
 
+### JSON Schema & Field Reference
+
+All JSON summary reports adhere to `schema_version: 1`:
+
+| Field | Type | Description |
+|---|---|---|
+| `schema_version` | `u32` | Schema format version (always `1`) |
+| `interval_seconds` | `u64` | Configured duration or periodic frequency in seconds |
+| `window_duration_seconds` | `f64` | Measured wall-clock duration of the reporting window |
+| `window_start` | `string` | Window start timestamp in ISO 8601 UTC format |
+| `window_end` | `string` | Window end timestamp in ISO 8601 UTC format |
+| `packets_seen` | `u64` | Total raw packets received by the sniffer from libpcap |
+| `datagrams_decoded` | `u64` | Total valid UDP datagrams matching destination port |
+| `non_matching_port` | `u64` | Captured packets with destination port not matching `--port` (offline replays) *(optional)* |
+| `hosts` | `object` | Map of host key (hostname or source IP) to entry statistics |
+| `hosts.<host>.count` | `u64` | Number of messages received from this host |
+| `hosts.<host>.sample` | `string` | Truncated sample message payload (empty if `--no-sample`) |
+| `hosts.<host>.sources` | `array[string]` | Distinct observed sender IP addresses for this host (up to 8) |
+| `hosts.<host>.sources_truncated` | `bool` | True if more than 8 distinct sender IPs were seen for this host *(optional)* |
+| `senders` | `object` | Independent map of verified sender IP to packet count (up to `--max-sources`) *(optional)* |
+| `hosts_overflowed` | `u64` | Deprecated counter for packets dropped after `--max-hosts` reached (mirrors `packets_from_overflowed_hosts`) *(optional)* |
+| `packets_from_overflowed_hosts` | `u64` | Total packets dropped from host table due to memory limit (`--max-hosts`) *(optional)* |
+| `distinct_hosts_overflowed` | `u64` | Best-effort distinct hostnames rejected due to memory limit *(optional)* |
+| `senders_overflowed` | `u64` | Distinct sender IPs rejected after `--max-sources` reached *(optional)* |
+| `decode_truncated` | `u64` | Frames truncated before IP/UDP headers could be decoded *(optional)* |
+| `decode_unsupported` | `u64` | Non-UDP frames, unsupported protocols, or non-initial fragments *(optional)* |
+| `fragmented_first` | `u64` | Initial IP fragments with UDP headers skipped due to incomplete payload *(optional)* |
+| `decode_errors` | `u64` | Deprecated sum of link-layer decode errors (`decode_truncated + decode_unsupported`) *(optional)* |
+| `parse_errors` | `u64` | UDP payloads that failed syslog message parsing (empty, whitespace/null only, or panic recovery) *(optional)* |
+| `no_hostname` | `u64` | Packets parsed where hostname could not be extracted *(optional)* |
+| `non_utf8` | `u64` | Packets containing non-UTF-8 bytes (converted losslessly via `from_utf8_lossy`) *(optional)* |
+| `capture_stats` | `object` | Kernel-level capture statistics reported by libpcap *(optional)* |
+| `capture_stats.received` | `u32` | Packets received by kernel packet filter (pre-filter count) |
+| `capture_stats.dropped` | `u32` | Packets dropped due to buffer exhaustion |
+| `capture_stats.if_dropped` | `u32` | Packets dropped by network interface driver |
+
+### Exit Codes
+
+| Code | Meaning | Description |
+|---|---|---|
+| `0` | Success | Normal termination (duration elapsed, SIGINT/SIGTERM clean exit, or broken pipe on stdout) |
+| `1` | Runtime Failure | Capture error (device open error, permission denied, corrupt pcap, persistent IO error) |
+| `2` | Usage / Configuration Error | Invalid command line arguments, invalid numeric ranges, or validation failures |
+
 ## Limitations
 
 - **UDP Only**: Listens to UDP syslog traffic (RFC 3164 and RFC 5424). TCP/TLS syslog (RFC 5425 / RFC 6587) and RELP are not captured.
 - **IP Fragmentation**: Initial UDP fragments carrying the UDP header are counted in `fragmented_first` and skipped (as their payload is incomplete); subsequent non-initial fragments carry no UDP port headers and are counted in `decode_unsupported`.
+- **VLAN Tagging**: 802.1Q and 802.1ad QinQ tagged frames are decoded and parsed. Note that libpcap BPF filters without a `vlan` qualifier might not match VLAN-tagged packets on live capture unless hardware VLAN stripping/offloading is enabled on the interface.
 - **Self-Reported Hostnames & Table Evasion**: Hostnames parsed from syslog payloads are self-reported by clients and can be spoofed. An attacker generating traffic with arbitrary hostnames could attempt to fill the host table up to `--max-hosts` to obscure legitimate systems in the overflow counts. To mitigate this evasion risk:
   - An independent, bounded per-source-IP table (`senders: {ip: count}`) tracks sending hosts up to `--max-sources` (default: 10,000) regardless of `--key-by`.
   - The `sources` array records actual observed IP addresses for each host entry.

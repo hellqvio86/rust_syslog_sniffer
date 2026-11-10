@@ -259,6 +259,10 @@ mod tests {
         write_test_pcap(&path, 105, &[]); // Linktype 105: IEEE 802.11
         let res = FileCapture::new(&path, 514);
         assert!(matches!(res, Err(SnifferError::UnsupportedDatalink(105))));
+        let err_msg = res.err().unwrap().to_string();
+        assert!(err_msg.contains("105"));
+        assert!(err_msg.contains("Ethernet"));
+        assert!(err_msg.contains("Linux SLL"));
         let _ = std::fs::remove_file(&path);
     }
 

@@ -100,7 +100,7 @@
   - **Where:** `run_sniffer_with_writer(config: Config, …)`; tests build `Config` with a 16-field struct literal.
   - **Fix:** introduce `RunOptions { port, duration, periodic, frequency, max_hosts, sample_bytes, format, emit_empty, key_by }` (no clap derive), `impl From<&Config> for RunOptions`, and take that in `app.rs`. Tests use `RunOptions::default()` + struct update.
 
-- [ ] **P1-8 Fail fast on unsupported link types** `(verify)`
+- [x] **P1-8 Fail fast on unsupported link types** `(verify)`
   - **Where:** `src/capture.rs`, `src/decode.rs` (`Datalink::Unsupported`).
   - **Problem:** on e.g. an 802.11 or PPP interface every frame becomes a `decode_error` and the run "succeeds" with an empty/odd summary.
   - **Fix:** `PcapCapture::new` and `FileCapture::new` return `SnifferError::UnsupportedDatalink(i32)` (message lists supported types) instead of constructing a source. Add a test with a crafted pcap using linktype 105.

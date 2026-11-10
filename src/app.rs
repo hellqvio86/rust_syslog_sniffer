@@ -11,17 +11,48 @@ use std::time::{Duration, Instant, SystemTime};
 
 const MAX_CONSECUTIVE_ERRORS: usize = 50;
 
+pub trait Clock: Send + Sync {
+    fn now(&self) -> Instant;
+    fn sleep(&self, duration: Duration);
+    fn system_now(&self) -> SystemTime;
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct RealClock;
+
+impl Clock for RealClock {
+    fn now(&self) -> Instant {
+        Instant::now()
+    }
+    fn sleep(&self, duration: Duration) {
+        std::thread::sleep(duration);
+    }
+    fn system_now(&self) -> SystemTime {
+        SystemTime::now()
+    }
+}
+
 pub fn run_sniffer<S: PacketSource>(options: RunOptions, source: S) -> Result<(), SnifferError> {
     let stdout = std::io::stdout();
     let shutdown = Arc::new(AtomicBool::new(false));
-    run_sniffer_with_writer(options, source, stdout.lock(), shutdown)
+    run_sniffer_with_writer_and_clock(options, source, stdout.lock(), shutdown, RealClock)
 }
 
 pub fn run_sniffer_with_writer<S: PacketSource, W: Write>(
     options: RunOptions,
+    source: S,
+    writer: W,
+    shutdown: Arc<AtomicBool>,
+) -> Result<(), SnifferError> {
+    run_sniffer_with_writer_and_clock(options, source, writer, shutdown, RealClock)
+}
+
+pub fn run_sniffer_with_writer_and_clock<S: PacketSource, W: Write, C: Clock>(
+    options: RunOptions,
     mut source: S,
     mut writer: W,
     shutdown: Arc<AtomicBool>,
+    clock: C,
 ) -> Result<(), SnifferError> {
     options
         .validate()
@@ -44,15 +75,15 @@ pub fn run_sniffer_with_writer<S: PacketSource, W: Write>(
         options.key_by,
     );
 
-    let start_instant = Instant::now();
-    let mut window_start_instant = Instant::now();
-    let mut window_start_time = SystemTime::now();
+    let start_instant = clock.now();
+    let mut window_start_instant = clock.now();
+    let mut window_start_time = clock.system_now();
 
     let freq_dur = Duration::from_secs(options.frequency.max(1));
-    let mut next_report_instant = Instant::now() + freq_dur;
+    let mut next_report_instant = start_instant + freq_dur;
 
     let mut consecutive_errors: usize = 0;
-    let mut last_error_log = Instant::now() - Duration::from_secs(2);
+    let mut last_error_log = clock.now() - Duration::from_secs(2);
 
     loop {
         if shutdown.load(Ordering::Relaxed) {
@@ -61,14 +92,17 @@ pub fn run_sniffer_with_writer<S: PacketSource, W: Write>(
         }
 
         if let Some(dur) = total_duration {
-            if start_instant.elapsed() >= dur {
+            if clock.now().duration_since(start_instant) >= dur {
                 break;
             }
         }
 
-        if options.periodic && Instant::now() >= next_report_instant {
-            let window_end_time = SystemTime::now();
-            let window_duration_secs = window_start_instant.elapsed().as_secs_f64();
+        if options.periodic && clock.now() >= next_report_instant {
+            let window_end_time = clock.system_now();
+            let window_duration_secs = clock
+                .now()
+                .duration_since(window_start_instant)
+                .as_secs_f64();
 
             if options.emit_empty || !stats.is_empty() {
                 stats.set_capture_stats(source.stats());
@@ -89,9 +123,9 @@ pub fn run_sniffer_with_writer<S: PacketSource, W: Write>(
                 stats.clear();
             }
 
-            window_start_instant = Instant::now();
-            window_start_time = SystemTime::now();
-            while next_report_instant <= Instant::now() {
+            window_start_instant = clock.now();
+            window_start_time = clock.system_now();
+            while next_report_instant <= clock.now() {
                 next_report_instant += freq_dur;
             }
         }
@@ -155,7 +189,7 @@ pub fn run_sniffer_with_writer<S: PacketSource, W: Write>(
             Ok(None) => {
                 consecutive_errors = 0;
                 // Idle / read timeout: sleep briefly to avoid busy-loop
-                std::thread::sleep(Duration::from_millis(10));
+                clock.sleep(Duration::from_millis(10));
                 continue;
             }
             Err(SnifferError::CaptureClosed(_)) => {
@@ -164,9 +198,9 @@ pub fn run_sniffer_with_writer<S: PacketSource, W: Write>(
             }
             Err(e) => {
                 consecutive_errors += 1;
-                if last_error_log.elapsed() >= Duration::from_secs(1) {
+                if clock.now().duration_since(last_error_log) >= Duration::from_secs(1) {
                     warn!("Capture error (consecutive={}): {}", consecutive_errors, e);
-                    last_error_log = Instant::now();
+                    last_error_log = clock.now();
                 }
                 if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
                     error!(
@@ -178,14 +212,17 @@ pub fn run_sniffer_with_writer<S: PacketSource, W: Write>(
                         MAX_CONSECUTIVE_ERRORS, e
                     )));
                 }
-                std::thread::sleep(Duration::from_millis(10));
+                clock.sleep(Duration::from_millis(10));
             }
         }
     }
 
     if options.emit_empty || !stats.is_empty() {
-        let window_end_time = SystemTime::now();
-        let window_duration_secs = window_start_instant.elapsed().as_secs_f64();
+        let window_end_time = clock.system_now();
+        let window_duration_secs = clock
+            .now()
+            .duration_since(window_start_instant)
+            .as_secs_f64();
         let interval_seconds = if options.periodic {
             window_duration_secs.round() as u64
         } else {
@@ -596,6 +633,40 @@ mod tests {
         assert!(!matches!(res2, Err(SnifferError::OutputClosed)));
     }
 
+    #[derive(Clone)]
+    struct FakeClock {
+        now: Arc<std::sync::Mutex<Instant>>,
+        system_now: Arc<std::sync::Mutex<SystemTime>>,
+    }
+
+    impl FakeClock {
+        fn new() -> Self {
+            Self {
+                now: Arc::new(std::sync::Mutex::new(Instant::now())),
+                system_now: Arc::new(std::sync::Mutex::new(SystemTime::now())),
+            }
+        }
+
+        fn advance(&self, d: Duration) {
+            let mut now = self.now.lock().unwrap();
+            *now += d;
+            let mut sys = self.system_now.lock().unwrap();
+            *sys += d;
+        }
+    }
+
+    impl Clock for FakeClock {
+        fn now(&self) -> Instant {
+            *self.now.lock().unwrap()
+        }
+        fn sleep(&self, d: Duration) {
+            self.advance(d);
+        }
+        fn system_now(&self) -> SystemTime {
+            *self.system_now.lock().unwrap()
+        }
+    }
+
     #[test]
     fn test_run_sniffer_broken_pipe_periodic_indefinite_returns_promptly() {
         let mut config = default_test_options();
@@ -606,15 +677,17 @@ mod tests {
 
         let writer = FailingWriter { broken_pipe: true };
         let shutdown = Arc::new(AtomicBool::new(false));
+        let clock = FakeClock::new();
 
         struct PeriodicSleepingSource {
             called: usize,
+            clock: FakeClock,
         }
         impl PacketSource for PeriodicSleepingSource {
             fn next_packet(&mut self) -> Result<Option<PacketData>, SnifferError> {
                 self.called += 1;
                 if self.called == 1 {
-                    std::thread::sleep(Duration::from_millis(1050));
+                    self.clock.advance(Duration::from_millis(1050));
                 }
                 Ok(None)
             }
@@ -623,11 +696,15 @@ mod tests {
             }
         }
 
-        let res = run_sniffer_with_writer(
+        let res = run_sniffer_with_writer_and_clock(
             config,
-            PeriodicSleepingSource { called: 0 },
+            PeriodicSleepingSource {
+                called: 0,
+                clock: clock.clone(),
+            },
             writer,
             shutdown,
+            clock,
         );
         assert!(matches!(res, Err(SnifferError::OutputClosed)));
     }
@@ -671,17 +748,18 @@ mod tests {
 
         struct SleepingSource {
             count: usize,
+            clock: FakeClock,
         }
         impl PacketSource for SleepingSource {
             fn next_packet(&mut self) -> Result<Option<PacketData>, SnifferError> {
                 self.count += 1;
                 if self.count == 1 {
-                    std::thread::sleep(Duration::from_millis(1100));
+                    self.clock.advance(Duration::from_millis(1100));
                     Ok(Some(PacketData {
                         data: create_test_frame(b"<13>test periodic periodic"),
                     }))
                 } else {
-                    std::thread::sleep(Duration::from_millis(100));
+                    self.clock.advance(Duration::from_millis(1000));
                     Ok(None)
                 }
             }
@@ -690,11 +768,16 @@ mod tests {
             }
         }
 
-        let source = SleepingSource { count: 0 };
+        let clock = FakeClock::new();
+        let source = SleepingSource {
+            count: 0,
+            clock: clock.clone(),
+        };
         let mut buf = Cursor::new(Vec::new());
         let shutdown = Arc::new(AtomicBool::new(false));
 
-        let res = run_sniffer_with_writer(config.clone(), source, &mut buf, shutdown);
+        let res =
+            run_sniffer_with_writer_and_clock(config.clone(), source, &mut buf, shutdown, clock);
         assert!(res.is_ok());
         let output = String::from_utf8(buf.into_inner()).unwrap();
         assert!(output.contains("\"hosts\":"));
@@ -702,24 +785,34 @@ mod tests {
         // Test Pretty format in periodic interval
         let mut config_pretty = config.clone();
         config_pretty.format = OutputFormat::Pretty;
-        let source_pretty = SleepingSource { count: 0 };
+        let clock_pretty = FakeClock::new();
+        let source_pretty = SleepingSource {
+            count: 0,
+            clock: clock_pretty.clone(),
+        };
         let mut buf_pretty = Cursor::new(Vec::new());
-        let res_pretty = run_sniffer_with_writer(
+        let res_pretty = run_sniffer_with_writer_and_clock(
             config_pretty,
             source_pretty,
             &mut buf_pretty,
             Arc::new(AtomicBool::new(false)),
+            clock_pretty,
         );
         assert!(res_pretty.is_ok());
 
         // Test BrokenPipe in periodic interval
         let mut failing_writer = FailingWriter { broken_pipe: true };
-        let source_broken = SleepingSource { count: 0 };
-        let res_broken = run_sniffer_with_writer(
+        let clock_broken = FakeClock::new();
+        let source_broken = SleepingSource {
+            count: 0,
+            clock: clock_broken.clone(),
+        };
+        let res_broken = run_sniffer_with_writer_and_clock(
             config,
             source_broken,
             &mut failing_writer,
             Arc::new(AtomicBool::new(false)),
+            clock_broken,
         );
         assert!(matches!(res_broken, Err(SnifferError::OutputClosed)));
     }
@@ -729,10 +822,11 @@ mod tests {
         let mut config = default_test_options();
         config.duration = Some(1);
 
-        struct IdleSource;
+        let clock = FakeClock::new();
+        struct IdleSource(FakeClock);
         impl PacketSource for IdleSource {
             fn next_packet(&mut self) -> Result<Option<PacketData>, SnifferError> {
-                std::thread::sleep(Duration::from_millis(50));
+                self.0.advance(Duration::from_millis(500));
                 Ok(None)
             }
             fn datalink(&self) -> Datalink {
@@ -742,7 +836,13 @@ mod tests {
 
         let mut buf = Cursor::new(Vec::new());
         let shutdown = Arc::new(AtomicBool::new(false));
-        let res = run_sniffer_with_writer(config, IdleSource, &mut buf, shutdown);
+        let res = run_sniffer_with_writer_and_clock(
+            config,
+            IdleSource(clock.clone()),
+            &mut buf,
+            shutdown,
+            clock,
+        );
         assert!(res.is_ok());
     }
 

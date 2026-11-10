@@ -130,7 +130,7 @@
 
 ## P2 — tests, performance, code quality
 
-- [ ] **P2-1 Unit suite is slow; `Ok(None)` path still polls** **(verified, carried: P2-1)**
+- [x] **P2-1 Unit suite is slow; `Ok(None)` path still polls** **(verified, carried: P2-1)**
   - `cargo test --lib` took **7.9 s** (round-1 acceptance: well under 1 s). Causes: `test_run_sniffer_periodic_interval_report` sleeps 1.1 s plus others, and every `Ok(None)` sleeps 10 ms in real time.
   - **Fix:** inject a `Clock` trait (`now() -> Instant`, `sleep(Duration)`, `system_now()`), use a fake in tests; keep the real one in `main`. Target: lib tests < 1 s.
 

@@ -8,6 +8,7 @@ pub mod error;
 pub mod parser;
 pub mod stats;
 
+pub use app::{Clock, RealClock};
 pub use config::{Config, KeyBy, OutputFormat, RunOptions};
 pub use decode::{decode_datagram, Datagram, Datalink, DecodeError};
 pub use error::SnifferError;

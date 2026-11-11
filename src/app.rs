@@ -54,9 +54,7 @@ pub fn run_sniffer_with_writer_and_clock<S: PacketSource, W: Write, C: Clock>(
     shutdown: Arc<AtomicBool>,
     clock: C,
 ) -> Result<(), SnifferError> {
-    options
-        .validate()
-        .map_err(|e| SnifferError::Capture(format!("Configuration error: {}", e)))?;
+    options.validate().map_err(SnifferError::Config)?;
 
     debug!("Port to sniff: {:?}", options.port);
     debug!(

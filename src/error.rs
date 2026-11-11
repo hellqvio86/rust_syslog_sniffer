@@ -2,6 +2,8 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum SnifferError {
+    #[error("Configuration error: {0}")]
+    Config(String),
     #[error("Device '{0}' not found")]
     DeviceNotFound(String),
     #[error("Device lookup failed: {0}")]

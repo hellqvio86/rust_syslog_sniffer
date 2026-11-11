@@ -66,6 +66,18 @@ impl From<&Config> for RunOptions {
 
 impl RunOptions {
     pub fn validate(&self) -> Result<(), String> {
+        if self.port == 0 {
+            return Err("Port must be non-zero (1-65535)".to_string());
+        }
+        if self.periodic && self.frequency == 0 {
+            return Err("Periodic frequency must be at least 1 second".to_string());
+        }
+        if self.max_hosts == 0 {
+            return Err("max_hosts must be at least 1".to_string());
+        }
+        if self.max_sources == 0 {
+            return Err("max_sources must be at least 1".to_string());
+        }
         if let Some(d) = self.duration {
             if d > 0 && self.periodic && self.frequency > d {
                 return Err(format!(
@@ -248,6 +260,18 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<(), String> {
+        if self.port == 0 {
+            return Err("Port must be non-zero (1-65535)".to_string());
+        }
+        if self.periodic && self.frequency == 0 {
+            return Err("Periodic frequency must be at least 1 second".to_string());
+        }
+        if self.max_hosts == 0 {
+            return Err("max_hosts must be at least 1".to_string());
+        }
+        if self.max_sources == 0 {
+            return Err("max_sources must be at least 1".to_string());
+        }
         let dur = self.duration.or(self.interval);
         if let Some(d) = dur {
             if d > 0 && self.periodic && self.frequency > d {
@@ -460,5 +484,39 @@ mod tests {
 
         config.duration = Some(20);
         assert!(config.validate().is_ok());
+
+        let mut bad_port = config.clone();
+        bad_port.port = 0;
+        assert!(bad_port.validate().is_err());
+
+        let mut bad_freq = config.clone();
+        bad_freq.frequency = 0;
+        assert!(bad_freq.validate().is_err());
+
+        let mut bad_hosts = config.clone();
+        bad_hosts.max_hosts = 0;
+        assert!(bad_hosts.validate().is_err());
+
+        let mut bad_sources = config.clone();
+        bad_sources.max_sources = 0;
+        assert!(bad_sources.validate().is_err());
+
+        let mut run_opts = RunOptions::from(&config);
+        assert!(run_opts.validate().is_ok());
+
+        run_opts.port = 0;
+        assert!(run_opts.validate().is_err());
+        run_opts.port = 514;
+
+        run_opts.frequency = 0;
+        assert!(run_opts.validate().is_err());
+        run_opts.frequency = 5;
+
+        run_opts.max_hosts = 0;
+        assert!(run_opts.validate().is_err());
+        run_opts.max_hosts = 100;
+
+        run_opts.max_sources = 0;
+        assert!(run_opts.validate().is_err());
     }
 }

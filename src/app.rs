@@ -138,7 +138,18 @@ pub fn run_sniffer_with_writer_and_clock<S: PacketSource, W: Write, C: Clock>(
                 stats.record_packet_seen();
                 debug!("Received packet: len={}", packet.data.len());
 
-                match decode_datagram(datalink, &packet.data) {
+                let decoded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    decode_datagram(datalink, &packet.data)
+                }));
+                let decode_res = match decoded {
+                    Ok(res) => res,
+                    Err(_) => {
+                        stats.record_decode_error();
+                        continue;
+                    }
+                };
+
+                match decode_res {
                     Ok(datagram) => {
                         if datagram.dst_port != options.port {
                             stats.record_non_matching_port();
@@ -161,7 +172,7 @@ pub fn run_sniffer_with_writer_and_clock<S: PacketSource, W: Write, C: Clock>(
                                         "Captured from {:?} (src_ip={}): {}",
                                         syslog.hostname,
                                         datagram.src_ip,
-                                        truncate_utf8(&syslog.message, sample_bytes.max(64))
+                                        truncate_utf8(&syslog.message, sample_bytes)
                                     );
                                 } else {
                                     debug!(

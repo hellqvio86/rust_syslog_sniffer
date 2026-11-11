@@ -274,13 +274,6 @@ impl StatsTracker {
             HostStorage::SourceIp { stats, overflowed } => {
                 if let Some(entry) = stats.get_mut(&src_ip) {
                     entry.count += 1;
-                    if entry.sources.contains(&src_ip) {
-                        // already tracked
-                    } else if entry.sources.len() < 8 {
-                        entry.sources.push(src_ip);
-                    } else {
-                        entry.sources_truncated = true;
-                    }
                 } else if stats.len() < self.max_hosts {
                     let sample = if self.sample_bytes > 0 {
                         truncate_utf8(message, self.sample_bytes).to_string()
@@ -292,7 +285,7 @@ impl StatsTracker {
                         HostEntry {
                             count: 1,
                             sample,
-                            sources: vec![src_ip],
+                            sources: Vec::new(),
                             sources_truncated: false,
                         },
                     );
@@ -524,7 +517,12 @@ mod tests {
         let now = SystemTime::now();
         let summary = tracker.get_summary(5, 5.0, now, now);
         assert_eq!(summary.hosts.len(), 1);
-        assert!(summary.hosts.contains_key("192.168.1.50"));
+        let host = summary.hosts.get("192.168.1.50").unwrap();
+        assert!(host.sources.is_empty());
+        assert!(!host.sources_truncated);
+        let json = serde_json::to_string(&summary).unwrap();
+        assert!(!json.contains("\"sources\":"));
+        assert!(!json.contains("\"sources_truncated\":"));
     }
 
     #[test]

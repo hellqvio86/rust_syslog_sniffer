@@ -151,7 +151,7 @@ pub fn run_sniffer_with_writer_and_clock<S: PacketSource, W: Write, C: Clock>(
                         match parsed {
                             Ok(Some(syslog)) => {
                                 stats.add_entry(
-                                    syslog.hostname,
+                                    syslog.hostname.as_deref(),
                                     datagram.src_ip,
                                     &syslog.message,
                                     syslog.is_non_utf8,

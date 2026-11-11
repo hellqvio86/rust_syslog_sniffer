@@ -430,7 +430,7 @@ mod tests {
         );
 
         let parsed = crate::parse_syslog_packet(datagram.payload).expect("parse syslog");
-        assert_eq!(parsed.hostname, Some("livehost"));
+        assert_eq!(parsed.hostname.as_deref(), Some("livehost"));
         assert!(parsed.message.contains("test root loopback message"));
     }
 }

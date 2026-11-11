@@ -4,6 +4,12 @@ use crate::{CaptureStats, PacketData, PacketSource};
 use pcap::{Active, Capture, Device, Offline};
 use std::path::Path;
 
+/// Builds the Berkeley Packet Filter (BPF) expression for syslog capture.
+///
+/// For Ethernet datalinks, includes VLAN-tagged packets via `or (vlan and udp dst port {port})`.
+/// Note that VLAN BPF syntax is specific to Ethernet (`EN10MB`); for non-Ethernet datalinks
+/// (such as Linux Cooked `SLL`/`SLL2`, BSD Loopback, or Raw IP), libpcap does not support the
+/// `vlan` primitive, so standard `udp dst port {port}` is used.
 pub fn bpf_filter(port: u16, datalink: Datalink) -> String {
     if datalink == Datalink::Ethernet {
         format!("udp dst port {0} or (vlan and udp dst port {0})", port)

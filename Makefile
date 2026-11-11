@@ -1,4 +1,4 @@
-.PHONY: all build run clean test check fmt fmt-check format clippy lint coverage sbom docker-build docker-run docker-run-interactive docker-tag docker-push docker-clean renovate renovate-summary help hooks secrets trivy
+.PHONY: all build run clean test check msrv fuzz fmt fmt-check format clippy lint coverage sbom docker-build docker-run docker-run-interactive docker-tag docker-push docker-clean renovate renovate-summary help hooks secrets trivy
 
 # Variables
 CARGO = cargo
@@ -39,6 +39,13 @@ clean: ## Clean build artifacts
 
 test: ## Run tests
 	$(CARGO) test --locked
+
+msrv: ## Check build against declared MSRV (Rust 1.88.0)
+	$(CARGO) +1.88.0 check --locked --all-targets
+
+fuzz: ## Run fuzz targets for parse and decode (requires cargo-fuzz)
+	$(CARGO) fuzz run parse -- -runs=10000
+	$(CARGO) fuzz run decode -- -runs=10000
 
 check: ## Check code without building
 	$(CARGO) check --locked

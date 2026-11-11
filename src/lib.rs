@@ -57,7 +57,17 @@ pub struct CaptureStats {
     pub packets_if_dropped: u32,
 }
 
+/// Abstraction for a packet capture source (live raw socket or offline pcap file).
+///
+/// # Lifetimes and Processing Contract
+/// `next_packet()` yields `PacketData<'_>` with a lifetime tied to the source.
+/// Callers **must** fully process or copy the packet data before the next invocation
+/// of `next_packet()` (classic pcap ring buffer / packet memory reuse constraint).
 pub trait PacketSource {
+    /// Returns the next packet, `Ok(None)` on non-blocking timeout, or error.
+    ///
+    /// The returned `PacketData` may borrow internal buffers that will be overwritten
+    /// on subsequent calls. Callers must finish processing before calling `next_packet` again.
     fn next_packet(&mut self) -> Result<Option<PacketData<'_>>, SnifferError>;
     fn datalink(&self) -> Datalink {
         Datalink::Raw

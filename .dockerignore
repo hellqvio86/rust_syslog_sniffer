@@ -6,6 +6,7 @@ target/
 coverage/
 docs/
 tests/
+fuzz/
 *.svg
 *.html
 *.xml

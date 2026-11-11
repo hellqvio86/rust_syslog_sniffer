@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.43] - 2026-11-11
+
+### Security & Robustness
+- Own hostname (`Cow<'a, str>`) in `SyslogPacket` for non-UTF8 payloads to guarantee lifetime safety and decouple from slice offsets (P0-1).
+- Extend `catch_unwind` defensive boundary to link-layer and UDP datagram decoding to prevent process termination on malformed datagrams (P0-4).
+
+### Added
+- Dedicated `SnifferError::Config(String)` variant for configuration and argument validation errors (P1-5).
+- Makefile `make msrv` and `make fuzz` targets for convenient local verification (P3-4).
+- Added `fuzz/` to `.dockerignore` to streamline Docker build context (P3-3).
+
+### Changed
+- Per-host `sources` list and `sources_truncated` indicator are omitted when keying by source IP (`--key-by source-ip`), avoiding redundant source listings (P0-2).
+- Clarified overflow counter semantics: `packets_from_overflowed_hosts` tracks total dropped packet volume after `--max-hosts` is reached, while `distinct_hosts_overflowed` tracks cardinality of distinct rejected hosts (P0-3).
+- Enforced exact `sample_bytes` limit in debug logging when sampling is configured (P1-2).
+- Added comprehensive configuration validation for non-zero port, positive periodic frequency, and positive `max_hosts` and `max_sources` in `RunOptions` and `Config` (P1-3).
+- Clarified BPF VLAN support (Ethernet only) and non-reassembled IP fragment handling in documentation (P1-6, P1-7).
+- Documented `PacketSource` contract regarding caller processing before subsequent `next_packet` invocations (P2-3).
+
 ## [0.1.42] - 2026-11-10
 
 ### Security

@@ -29,14 +29,15 @@ When modifying this repository, AI agents **MUST** respect the following non-neg
    - `#![forbid(unsafe_code)]` is strictly enforced in `src/lib.rs` and `src/main.rs`.
    - Never introduce `unsafe` blocks, helper functions, or external crates that require `unsafe` in our code.
 2. **Minimum Supported Rust Version (MSRV)**:
-   - Declared MSRV is **Rust 1.88.0** (`rust-version = "1.88"` in `Cargo.toml`).
+   - Declared MSRV is **Rust 1.88.0** (`rust-version = "1.88"` in `Cargo.toml`). Required by dependency baselines (such as `thiserror` 2.0 and cargo lockfile v4).
    - Do not use language or compiler features requiring Rust > 1.88.
-   - Always verify MSRV compatibility using `cargo check --locked --all-targets` on Rust 1.88.0.
+   - Always verify MSRV compatibility using `cargo check --locked --all-targets` on Rust 1.88.0 (or `make msrv`).
 3. **Bounded Memory Constraints**:
    - In live network monitoring, attacker-controlled traffic must never cause unbounded allocations.
    - Respect `--max-hosts` (default 10,000) and track overflow counters (`distinct_hosts_overflowed`, `packets_from_overflowed_hosts`) rather than unbounded map growth.
+   - Respect `--max-sources` (default 10,000) for global independent sender IP tracking (`senders` map and `senders_overflowed`).
    - Keep packet sample storage bounded by `--sample-bytes` (default 256) and obey `--no-sample`.
-   - Host source IPs per host are strictly capped at 8 unique addresses with a `sources_truncated` indicator.
+   - Host source IPs per host are strictly capped at 8 unique addresses with a `sources_truncated` indicator when keying by hostname; per-host sources are omitted when keying by source IP.
 4. **Performance & Zero-Copy Discipline**:
    - Hot capture paths must avoid heap allocations where possible (`Cow<'a, [u8]>`, borrowed string slices, and in-place lookups).
    - Throughput benchmark in `tests/throughput_test.rs` targets > 10M messages/sec on synthetic batches.

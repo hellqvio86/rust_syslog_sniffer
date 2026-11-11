@@ -207,8 +207,8 @@ All JSON summary reports adhere to `schema_version: 1`:
 ## Limitations
 
 - **UDP Only**: Listens to UDP syslog traffic (RFC 3164 and RFC 5424). TCP/TLS syslog (RFC 5425 / RFC 6587) and RELP are not captured.
-- **IP Fragmentation**: Initial UDP fragments carrying the UDP header are counted in `fragmented_first` and skipped (as their payload is incomplete); subsequent non-initial fragments carry no UDP port headers and are counted in `decode_unsupported`.
-- **VLAN Tagging**: 802.1Q and 802.1ad QinQ tagged frames are decoded and parsed. Note that libpcap BPF filters without a `vlan` qualifier might not match VLAN-tagged packets on live capture unless hardware VLAN stripping/offloading is enabled on the interface.
+- **IP Fragmentation**: IP fragments are not reassembled; first fragments carrying the UDP header are counted under `fragmented_first` and payloads are not parsed. Subsequent non-initial fragments carry no UDP port headers and are counted under `decode_unsupported`.
+- **VLAN Tagging**: 802.1Q and 802.1ad QinQ tagged frames are decoded and parsed. VLAN-aware BPF filtering is supported on Ethernet links (`or (vlan and udp dst port N)`); for non-Ethernet links such as Linux cooked mode (`SLL`/`SLL2`) or raw IP, standard BPF applies as libpcap does not support VLAN qualifiers on non-Ethernet link types. Note that without hardware VLAN stripping/offloading on non-Ethernet interfaces, tagged packets might be filtered by BPF unless captured on raw Ethernet.
 - **Self-Reported Hostnames & Table Evasion**: Hostnames parsed from syslog payloads are self-reported by clients and can be spoofed. An attacker generating traffic with arbitrary hostnames could attempt to fill the host table up to `--max-hosts` to obscure legitimate systems in the overflow counts. To mitigate this evasion risk:
   - An independent, bounded per-source-IP table (`senders: {ip: count}`) tracks sending hosts up to `--max-sources` (default: 10,000) regardless of `--key-by`.
   - The `sources` array records actual observed IP addresses for each host entry.

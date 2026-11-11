@@ -553,14 +553,20 @@ mod tests {
         let mut tracker = StatsTracker::new(2, 10_000, 256, KeyBy::Hostname);
         tracker.add_entry(Some("host1"), ip(10, 0, 0, 1), "msg", false);
         tracker.add_entry(Some("host2"), ip(10, 0, 0, 2), "msg", false);
+
+        // Max hosts (2) reached. Now send 3 packets from host3 and 2 packets from host4.
         tracker.add_entry(Some("host3"), ip(10, 0, 0, 3), "msg", false);
+        tracker.add_entry(Some("host3"), ip(10, 0, 0, 3), "msg", false);
+        tracker.add_entry(Some("host3"), ip(10, 0, 0, 3), "msg", false);
+        tracker.add_entry(Some("host4"), ip(10, 0, 0, 4), "msg", false);
+        tracker.add_entry(Some("host4"), ip(10, 0, 0, 4), "msg", false);
 
         let now = SystemTime::now();
         let summary = tracker.get_summary(10, 10.0, now, now);
         assert_eq!(summary.hosts.len(), 2);
-        assert_eq!(summary.hosts_overflowed, 1);
-        assert_eq!(summary.packets_from_overflowed_hosts, 1);
-        assert_eq!(summary.distinct_hosts_overflowed, 1);
+        assert_eq!(summary.hosts_overflowed, 5);
+        assert_eq!(summary.packets_from_overflowed_hosts, 5);
+        assert_eq!(summary.distinct_hosts_overflowed, 2);
     }
 
     #[test]

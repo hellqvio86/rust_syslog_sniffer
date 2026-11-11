@@ -181,8 +181,8 @@ All JSON summary reports adhere to `schema_version: 1`:
 | `hosts.<host>.sources_truncated` | `bool` | True if more than 8 distinct sender IPs were seen for this host *(optional)* |
 | `senders` | `object` | Independent map of verified sender IP to packet count (up to `--max-sources`) *(optional)* |
 | `hosts_overflowed` | `u64` | Deprecated counter for packets dropped after `--max-hosts` reached (mirrors `packets_from_overflowed_hosts`) *(optional)* |
-| `packets_from_overflowed_hosts` | `u64` | Total packets dropped from host table due to memory limit (`--max-hosts`) *(optional)* |
-| `distinct_hosts_overflowed` | `u64` | Best-effort distinct hostnames rejected due to memory limit *(optional)* |
+| `packets_from_overflowed_hosts` | `u64` | Total packet count received for hosts that could not be tracked because the host table reached `--max-hosts` *(optional)* |
+| `distinct_hosts_overflowed` | `u64` | Cardinality of distinct rejected host identifiers (best-effort, bounded up to 1,000 unique keys) *(optional)* |
 | `senders_overflowed` | `u64` | Distinct sender IPs rejected after `--max-sources` reached *(optional)* |
 | `decode_truncated` | `u64` | Frames truncated before IP/UDP headers could be decoded *(optional)* |
 | `decode_unsupported` | `u64` | Non-UDP frames, unsupported protocols, or non-initial fragments *(optional)* |

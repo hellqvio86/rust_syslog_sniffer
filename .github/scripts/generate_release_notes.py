@@ -5,6 +5,7 @@ Generate Markdown release notes:
 2. Otherwise, parses Conventional Commits from git log between the previous tag
    and current tag/HEAD, grouped into clean markdown sections with GitHub commit links.
 """
+
 import os
 import re
 import subprocess
@@ -15,8 +16,7 @@ def run_git(*args, cwd=None):
     res = subprocess.run(
         ["git", *args],
         cwd=cwd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         text=True,
         check=False,
     )
@@ -32,15 +32,18 @@ def get_repo(cwd=None):
     remote_url = run_git("remote", "get-url", "origin", cwd=cwd)
     match = re.search(r"github\.com[:/]([^/]+/[^/.]+)", remote_url)
     if match:
-        return match.group(1).rstrip(".git")
+        return match.group(1).removesuffix(".git")
     return None
 
 
-def extract_from_changelog(version, changelog_path="CHANGELOG.md"):
+def extract_from_changelog(version, changelog_path=None, cwd=None):
+    if changelog_path is None:
+        repo_root = run_git("rev-parse", "--show-toplevel", cwd=cwd)
+        changelog_path = os.path.join(repo_root, "CHANGELOG.md") if repo_root else "CHANGELOG.md"
     if not os.path.isfile(changelog_path):
         return None
     try:
-        with open(changelog_path, "r", encoding="utf-8") as f:
+        with open(changelog_path, encoding="utf-8") as f:
             content = f.read()
         clean_version = version.lstrip("v")
         pattern = rf"## \[{re.escape(clean_version)}\][^\n]*\n(.*?)(?=\n## \[|\Z)"
@@ -55,13 +58,14 @@ def extract_from_changelog(version, changelog_path="CHANGELOG.md"):
 
 
 def get_previous_tag(current_tag, cwd=None):
-    # Try git describe on current_tag^
-    prev = run_git("describe", "--tags", "--abbrev=0", f"{current_tag}^", cwd=cwd)
-    if prev:
-        return prev
+    # Try git describe on current_tag^ if current_tag is a valid ref
+    if current_tag and run_git("rev-parse", "--verify", f"{current_tag}^{{commit}}", cwd=cwd):
+        prev = run_git("describe", "--tags", "--abbrev=0", f"{current_tag}^", cwd=cwd)
+        if prev:
+            return prev
 
-    # Try git describe on HEAD^
-    prev = run_git("describe", "--tags", "--abbrev=0", "HEAD^", cwd=cwd)
+    # Try git describe on HEAD
+    prev = run_git("describe", "--tags", "--abbrev=0", "HEAD", cwd=cwd)
     if prev:
         return prev
 
@@ -79,7 +83,10 @@ def get_previous_tag(current_tag, cwd=None):
 
 
 def get_commits(current_tag, prev_tag=None, cwd=None):
-    rev_range = f"{prev_tag}..{current_tag}" if prev_tag else current_tag
+    target = current_tag
+    if not run_git("rev-parse", "--verify", f"{target}^{{commit}}", cwd=cwd):
+        target = "HEAD"
+    rev_range = f"{prev_tag}..{target}" if prev_tag else target
     log_output = run_git("log", rev_range, "--pretty=format:%h%x09%H%x09%s", cwd=cwd)
     if not log_output:
         return []
@@ -107,7 +114,9 @@ def format_commits(repo, commits):
     other_items = []
 
     for short_sha, long_sha, subject in commits:
-        if re.match(r"^chore\(release\):", subject, re.IGNORECASE) or re.match(r"^bump version", subject, re.IGNORECASE):
+        if re.match(r"^chore\(release\):", subject, re.IGNORECASE) or re.match(
+            r"^bump version", subject, re.IGNORECASE
+        ):
             continue
 
         matched = False

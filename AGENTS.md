@@ -105,13 +105,21 @@ cargo +1.88.0 check --locked --all-targets
 
 ### Conventional Commits
 All commits must follow the [Conventional Commits](https://www.conventionalcommits.org/) specification:
-- `fix(...)`: Bug fixes (e.g., `fix(parser): ...`, `fix(capture): ...`, `fix(ci): ...`)
 - `feat(...)`: New user-facing features or flags
-- `chore(...)`: Maintenance, dependency pins, or release version bumps
-- `refactor(...)`: Code refactoring without behavior changes
-- `test(...)`: Adding or improving tests
+- `fix(...)`: Bug fixes (e.g., `fix(parser): ...`, `fix(capture): ...`, `fix(ci): ...`)
 - `perf(...)`: Performance optimizations
 - `docs(...)`: Documentation updates
+- `test(...)`: Adding or improving tests
+- `refactor(...)`: Code refactoring without behavior changes
+- `chore(...)`: Maintenance, dependency pins, or release version bumps (e.g. `chore(release): bump version to 0.2.0`)
+- `ci(...)`: CI/CD configuration and pipeline scripts
+
+### Git Release Tags
+All git release tags must strictly adhere to Semantic Versioning with a mandatory lowercase `v` prefix:
+- **Format**: `v<MAJOR>.<MINOR>.<PATCH>` (e.g., `v0.1.0`, `v0.2.0`, `v1.0.0`).
+- **Pre-releases** (if applicable): `v<MAJOR>.<MINOR>.<PATCH>-<pre>` (e.g., `v0.2.0-rc.1`).
+- **Rule**: Never create or push raw numeric tags without the leading `v` (e.g., `0.2.0` is forbidden).
+- **Automation**: In automated CI releases, the tag is derived by prefixing `v` to the `version` field in `Cargo.toml`. Git tags are created as annotated tags (`git tag -a vX.Y.Z -m "Release vX.Y.Z"`).
 
 ### Pre-commit & Pre-push Hooks
 - **Pre-commit** (`.githooks/pre-commit`): Runs fast formatting check, `cargo clippy`, and TruffleHog secrets scan on staged diff in < 1s.

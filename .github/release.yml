@@ -1,0 +1,16 @@
+changelog:
+  categories:
+    - title: "Security & Robustness 🛡️"
+      labels:
+        - "security"
+        - "bug"
+        - "fix"
+    - title: "Features & Enhancements 🚀"
+      labels:
+        - "enhancement"
+        - "feature"
+    - title: "Documentation & Tooling 📚"
+      labels:
+        - "documentation"
+        - "dependencies"
+        - "chore"

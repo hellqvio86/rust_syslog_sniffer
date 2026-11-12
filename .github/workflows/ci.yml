@@ -403,45 +403,11 @@ jobs:
       - name: Generate release notes
         id: release_notes
         run: |
-          VERSION="${{ needs.detect.outputs.version }}"
-          TAG="${{ needs.detect.outputs.tag }}"
           NOTES_FILE="${RUNNER_TEMP}/RELEASE_NOTES.md"
-
-          # 1. Try extracting curated notes for this version from CHANGELOG.md
-          python3 -c "
-          import re, sys
-
-          version = '${VERSION}'
-          try:
-              with open('CHANGELOG.md') as f:
-                  content = f.read()
-              pattern = rf'## \[{re.escape(version)}\][^\n]*\n(.*?)(?=\n## \[|\Z)'
-              match = re.search(pattern, content, re.DOTALL)
-              if match:
-                  notes = match.group(1).strip()
-                  with open('${NOTES_FILE}', 'w') as out:
-                      out.write(notes + '\n')
-                  print('Successfully extracted release notes from CHANGELOG.md')
-                  sys.exit(0)
-          except Exception as e:
-              print(f'Error reading CHANGELOG.md: {e}')
-          sys.exit(1)
-          " || {
-            echo "Version ${VERSION} not found in CHANGELOG.md, generating from git log..."
-            PREV_TAG=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || git describe --tags --abbrev=0 HEAD^ 2>/dev/null || "")
-            if [ -n "$PREV_TAG" ]; then
-              echo "### Changes since $PREV_TAG" > "${NOTES_FILE}"
-              git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%h)" --no-merges >> "${NOTES_FILE}"
-            else
-              echo "### Changes" > "${NOTES_FILE}"
-              git log -n 20 --pretty=format:"- %s (%h)" --no-merges >> "${NOTES_FILE}"
-            fi
-            echo "" >> "${NOTES_FILE}"
-          }
-
+          python3 .github/scripts/generate_release_notes.py "${{ needs.detect.outputs.tag }}" "${NOTES_FILE}"
+          echo "notes_path=${NOTES_FILE}" >> $GITHUB_OUTPUT
           echo "Generated release notes:"
           cat "${NOTES_FILE}"
-          echo "notes_path=${NOTES_FILE}" >> $GITHUB_OUTPUT
 
       - name: Create draft release
         uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1
